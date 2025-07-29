@@ -727,7 +727,9 @@ def main():
                     st.write(f"**Pre-forcing penalty:** {result.fun:.2e}")
                     
                     # ALWAYS force micronutrients to meet minimum targets, regardless of penalty
+                    st.write("**🔧 Calling forcing function...**")
                     g_best = force_micronutrients_in_solution(g_best, selected_salts, elem_bounds)
+                    st.write("**🔧 Forcing function completed**")
                     
                     # Recalculate penalty after forcing
                     final_penalty = penalty_function(g_best, selected_salts, elem_bounds, ratio_bounds)
