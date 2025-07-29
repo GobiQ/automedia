@@ -197,6 +197,7 @@ def generate_salt_bounds(selected_salts):
     
     return bounds
 
+@st.cache_data(ttl=60)  # Cache for 60 seconds to allow for updates
 def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000, popsize=30, seed=42, seed_pool=None):
     """Custom implementation of differential evolution optimization"""
     random.seed(seed)
@@ -367,6 +368,7 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
     
     return micronutrient_seeds
 
+@st.cache_data(ttl=60)  # Cache for 60 seconds to allow for updates
 def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
     """Force micronutrients to meet minimum targets if they're missing"""
     g_forced = g_best.copy()
@@ -600,6 +602,20 @@ def main():
         page_icon="🧪",
         layout="wide"
     )
+    
+    # Version tracking and cache clearing
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔄 Cache & Version")
+    
+    # Add a button to clear cache
+    if st.sidebar.button("🗑️ Clear Cache", help="Clear Streamlit cache if updates aren't showing"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.rerun()
+    
+    # Show version info
+    st.sidebar.markdown("**Version:** 2.1.0 (Fixed DE micronutrient injection)")
+    st.sidebar.markdown("**Last Update:** Fixed optimal_micronutrients variable order")
     
     st.title("🧪 Tissue Culture Media Optimizer")
     st.markdown("Optimize macro-salt recipes for tissue culture media using Monte Carlo seeding and evolutionary algorithms.")
@@ -854,6 +870,12 @@ def main():
                     
                     # Debug information
                     with st.expander("🔍 Debug Information"):
+                        # Version and cache info
+                        st.write("**🔄 Version Info:**")
+                        st.write("Version: 2.1.0 (Fixed DE micronutrient injection)")
+                        st.write("Cache TTL: 60 seconds")
+                        st.write("Last Update: Fixed optimal_micronutrients variable order")
+                        
                         st.write("**Elements being optimized:**")
                         st.write(list(elem_bounds.keys()))
                         st.write("**Elements calculated:**")
