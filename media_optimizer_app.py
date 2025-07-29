@@ -202,6 +202,10 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     random.seed(seed)
     np.random.seed(seed)
     
+    # Extract selected_salts from args for micronutrient identification
+    selected_salts = args[0]  # First argument is selected_salts
+    elem_bounds = args[1]     # Second argument is elem_bounds
+    
     # Initialize population with seed pool if available
     population = []
     
@@ -222,6 +226,22 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     
     best_individual = None
     best_fitness = np.inf
+    
+    # Pre-calculate optimal micronutrient concentrations for injection
+    optimal_micronutrients = {}
+    for j, salt in enumerate(selected_salts):
+        if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
+            # Find which element this salt provides
+            for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
+                if element in elem_bounds and element in STOICH_DATABASE[salt]:
+                    min_val, max_val = elem_bounds[element]
+                    target = (min_val + max_val) / 2  # Target middle of range
+                    mg_per_g = STOICH_DATABASE[salt][element]
+                    optimal_g_per_l = target / mg_per_g
+                    # Ensure it fits within bounds
+                    lo, hi = bounds[j]
+                    optimal_micronutrients[j] = max(lo, min(hi, optimal_g_per_l))
+                    break
     
     # Evolution loop
     for generation in range(maxiter):
@@ -254,15 +274,14 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
                     best_fitness = trial_fitness
                     best_individual = trial.copy()
         
-        # Periodically inject diversity for micronutrients
+        # FIXED: Periodically inject optimal micronutrient concentrations
         if generation % 100 == 0 and generation > 0:
-            # Force some individuals to include micronutrients
+            # Inject optimal micronutrient values into some individuals
             for i in range(min(5, popsize // 2)):
                 individual = population[i]
-                # Ensure micronutrient salts have some concentration
-                for j, (lo, hi) in enumerate(bounds):
-                    if lo > 0:  # This is a micronutrient salt
-                        individual[j] = random.uniform(lo, hi)
+                # Set micronutrient salts to their optimal values
+                for j, optimal_conc in optimal_micronutrients.items():
+                    individual[j] = optimal_conc
                 population[i] = individual
     
     # Create result object similar to scipy
@@ -969,6 +988,24 @@ def main():
                                 forcing_applied = True
                         if not forcing_applied:
                             st.write("  No forcing applied - solution already met targets")
+                        
+                        # Show DE optimal micronutrient injection values
+                        st.write("**🧬 DE Optimal Micronutrient Injection:**")
+                        if algorithm == 'DE':
+                            # Recalculate what DE should be injecting
+                            optimal_micronutrients = {}
+                            for j, salt in enumerate(selected_salts):
+                                if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
+                                    for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
+                                        if element in elem_bounds and element in STOICH_DATABASE[salt]:
+                                            min_val, max_val = elem_bounds[element]
+                                            target = (min_val + max_val) / 2
+                                            mg_per_g = STOICH_DATABASE[salt][element]
+                                            optimal_g_per_l = target / mg_per_g
+                                            lo, hi = generate_salt_bounds([salt])[0]
+                                            optimal_micronutrients[j] = max(lo, min(hi, optimal_g_per_l))
+                                            st.write(f"  {salt}: {optimal_g_per_l:.8f} g/L → {target:.6f} mg/L {element}")
+                                            break
                         
                         # Test penalty function with different scenarios
                         st.write("**Penalty Function Testing:**")
