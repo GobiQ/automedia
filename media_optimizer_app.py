@@ -377,29 +377,42 @@ def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
             # If below minimum, force the appropriate salt
             if current_total < min_target:
                 # Find the best salt to add for this micronutrient
-                best_salt = None
-                best_concentration = 0
+                best_salt_index = None
+                best_salt_name = None
                 
                 for i, salt in enumerate(selected_salts):
                     if salt in STOICH_DATABASE:
                         salt_data = STOICH_DATABASE[salt]
                         if element in salt_data:
                             mg_per_g = salt_data[element]
-                            # Calculate how much we need to add
-                            deficit = min_target - current_total
-                            needed_g_per_l = deficit / mg_per_g
+                            
+                            # FIXED: Calculate TOTAL needed, not just deficit
+                            total_needed_g_per_l = min_target / mg_per_g
                             
                             # Check if this would fit within bounds
-                            lo, hi = generate_salt_bounds([salt])[0]
-                            if needed_g_per_l <= hi:
-                                best_salt = i
-                                best_concentration = needed_g_per_l
+                            bounds = generate_salt_bounds(selected_salts)
+                            lo, hi = bounds[i]  # Use correct index from full bounds list
+                            
+                            if total_needed_g_per_l <= hi:
+                                best_salt_index = i
+                                best_salt_name = salt
                                 break
                 
-                # Force the micronutrient salt
-                if best_salt is not None:
-                    g_forced[best_salt] = best_concentration
-                    print(f"FORCED {element}: Added {best_concentration:.8f} g/L of {selected_salts[best_salt]} to meet minimum {min_target:.6f} mg/L")
+                # Force the micronutrient salt to the total needed amount
+                if best_salt_index is not None:
+                    # FIXED: Set to total needed, and zero out other salts providing this element
+                    total_needed_g_per_l = min_target / STOICH_DATABASE[best_salt_name][element]
+                    
+                    # Zero out other salts that provide this element to avoid double-counting
+                    for i, salt in enumerate(selected_salts):
+                        if (i != best_salt_index and salt in STOICH_DATABASE and 
+                            element in STOICH_DATABASE[salt]):
+                            g_forced[i] = 0.0
+                    
+                    # Set the best salt to provide exactly the minimum needed
+                    g_forced[best_salt_index] = total_needed_g_per_l
+                    
+                    print(f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L")
     
     return g_forced
 
@@ -988,6 +1001,32 @@ def main():
                                 forcing_applied = True
                         if not forcing_applied:
                             st.write("  No forcing applied - solution already met targets")
+                        
+                        # Show forcing calculations for Cu and Mo
+                        if forcing_applied:
+                            st.write("**🔧 Forcing Calculations:**")
+                            for element in ['Cu', 'Mo']:
+                                if element in elem_bounds:
+                                    min_target, max_target = elem_bounds[element]
+                                    
+                                    # Calculate original total
+                                    original_total = 0
+                                    for i, salt in enumerate(selected_salts):
+                                        if salt in STOICH_DATABASE and element in STOICH_DATABASE[salt]:
+                                            original_total += original_g[i] * STOICH_DATABASE[salt][element]
+                                    
+                                    # Calculate forced total
+                                    forced_total = 0
+                                    for i, salt in enumerate(selected_salts):
+                                        if salt in STOICH_DATABASE and element in STOICH_DATABASE[salt]:
+                                            forced_total += forced_g[i] * STOICH_DATABASE[salt][element]
+                                    
+                                    st.write(f"  {element}: {original_total:.8f} → {forced_total:.8f} mg/L (target: {min_target:.6f}-{max_target:.6f})")
+                                    
+                                    if original_total < min_target:
+                                        deficit = min_target - original_total
+                                        st.write(f"    Deficit was: {deficit:.8f} mg/L")
+                                        st.write(f"    Total needed: {min_target:.8f} mg/L")
                         
                         # Show DE optimal micronutrient injection values
                         st.write("**🧬 DE Optimal Micronutrient Injection:**")
