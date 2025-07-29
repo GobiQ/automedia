@@ -40,8 +40,8 @@ STOICH_DATABASE = {
     'Na2MoO4·2H2O': {'Mo': 395.9, 'Na': 126.4, 'category': 'Micronutrient'},
     'FeSO4·7H2O': {'Fe': 201.5, 'S': 115.4, 'category': 'Micronutrient'},
     'Na2EDTA·2H2O': {'Na': 84.7, 'EDTA': 372.2, 'category': 'Micronutrient'},
-    'MnCl2': {'Mn': 278.5, 'Cl': 504.8, 'category': 'Micronutrient'},
-    'CuCl2': {'Cu': 370.5, 'Cl': 528.9, 'category': 'Micronutrient'},
+    'MnCl2': {'Mn': 436.7, 'Cl': 563.3, 'category': 'Micronutrient'},  # Anhydrous
+    'CuCl2': {'Cu': 472.8, 'Cl': 527.2, 'category': 'Micronutrient'},  # Anhydrous
 }
 
 # Default presets
@@ -105,8 +105,16 @@ def calculate_ratios(e):
     
     return ratios
 
+def sq_violation(x, lo, hi):
+    """Scaled squared violation for smoother penalty landscape"""
+    if x < lo:
+        return ((lo - x) / (hi - lo)) ** 2
+    if x > hi:
+        return ((x - hi) / (hi - lo)) ** 2
+    return 0.0
+
 def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
-    """Penalty function for optimization"""
+    """Penalty function for optimization with smoother landscape"""
     e = elemental_totals(g, selected_salts)
     r = calculate_ratios(e)
     
@@ -119,47 +127,33 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
     
     if micronutrient_salt_indices:
         micronutrient_concentrations = [g[i] for i in micronutrient_salt_indices]
-        if any(conc > 0.0001 for conc in micronutrient_concentrations):
+        if any(conc > 1e-6 for conc in micronutrient_concentrations):
             micronutrient_salts_used = True
     
-    # Element constraints - treat ALL elements equally (macronutrients and micronutrients)
+    # Element constraints with scaled violations
     for el, (lo, hi) in elem_bounds.items():
         if el in e:
-            if e[el] < lo:
-                penalty += 1e6 + (lo - e[el]) ** 2
-            elif e[el] > hi:
-                penalty += 1e6 + (e[el] - hi) ** 2
+            penalty += sq_violation(e[el], lo, hi) * 1000  # Weighted penalty
     
-    # Ratio constraints
+    # Ratio constraints with scaled violations
     for ratio_name, (lo, hi) in ratio_bounds.items():
         if ratio_name in r:
-            if r[ratio_name] < lo:
-                penalty += 1e6 + (lo - r[ratio_name]) ** 2
-            elif r[ratio_name] > hi:
-                penalty += 1e6 + (r[ratio_name] - hi) ** 2
+            penalty += sq_violation(r[ratio_name], lo, hi) * 1000  # Weighted penalty
     
-    # CRITICAL: Force micronutrient inclusion
-    micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
-    micronutrient_penalty = 0
-    
-    # If no micronutrient salts are being used, add massive penalty
+    # Micronutrient inclusion penalty (softer)
     if not micronutrient_salts_used:
-        penalty += 1e10  # Impossible penalty
+        penalty += 1000  # High but not impossible penalty
     
+    # Additional penalty for micronutrient violations
+    micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
     for micronutrient in micronutrients:
         if micronutrient in elem_bounds and micronutrient in e:
             target_min, target_max = elem_bounds[micronutrient]
             actual = e[micronutrient]
-            if actual < target_min:
-                # Even stronger penalty for micronutrients
-                micronutrient_penalty += 1e8 + (target_min - actual) ** 2 * 10000
-            elif actual > target_max:
-                micronutrient_penalty += 1e8 + (actual - target_max) ** 2 * 10000
-    
-    penalty += micronutrient_penalty
+            penalty += sq_violation(actual, target_min, target_max) * 2000  # Higher weight for micronutrients
     
     # Minimize total salt concentration if feasible
-    if penalty < 1e5:
+    if penalty < 100:  # Much lower threshold
         penalty += sum(g) * 0.01
     
     return penalty
@@ -207,14 +201,26 @@ def generate_salt_bounds(selected_salts):
     
     return bounds
 
-def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000, popsize=30, seed=42):
+def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000, popsize=30, seed=42, seed_pool=None):
     """Custom implementation of differential evolution optimization"""
     random.seed(seed)
     np.random.seed(seed)
     
-    # Initialize population with more diversity
+    # Initialize population with seed pool if available
     population = []
-    for _ in range(popsize):
+    
+    # Use seed pool for 30% of population if available
+    if seed_pool and len(seed_pool) > 0:
+        n_seeds = min(len(seed_pool), int(popsize * 0.3))
+        for i in range(n_seeds):
+            seed_individual = seed_pool[i % len(seed_pool)].copy()
+            # Ensure bounds
+            for j, (lo, hi) in enumerate(bounds):
+                seed_individual[j] = max(lo, min(hi, seed_individual[j]))
+            population.append(seed_individual)
+    
+    # Fill rest with random individuals
+    while len(population) < popsize:
         individual = np.array([random.uniform(lo, hi) for lo, hi in bounds])
         population.append(individual)
     
@@ -357,7 +363,8 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
                 args=(selected_salts, elem_bounds, ratio_bounds),
                 maxiter=1000,
                 popsize=30,
-                seed=42 + trial
+                seed=42 + trial,
+                seed_pool=seed_pool
             )
         
         else:  # Gradient Descent (replaces SLSQP)
@@ -539,8 +546,8 @@ def main():
                 result = optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm, n_trials)
                 
                 if result is not None and hasattr(result, 'x'):
-                    g_opt = np.round(result.x, 3)
-                    e_opt = elemental_totals(g_opt, selected_salts)
+                    g_best = result.x.copy()  # Use unrounded for calculations
+                    e_opt = elemental_totals(g_best, selected_salts)
                     r_opt = calculate_ratios(e_opt)
                     
                     # Display results in columns
@@ -549,9 +556,10 @@ def main():
                     with col1:
                         st.subheader("📋 Recipe (g/L)")
                         recipe_data = []
-                        for salt, grams in zip(selected_salts, g_opt):
-                            if grams > 0.001:  # Only show salts with meaningful concentrations
-                                recipe_data.append({'Salt': salt, 'Concentration (g/L)': f"{grams:.3f}"})
+                        g_disp = np.round(g_best, 6)  # Round only for display
+                        for salt, grams in zip(selected_salts, g_disp):
+                            if grams > 1e-6:  # Show micronutrient salts with very small concentrations
+                                recipe_data.append({'Salt': salt, 'Concentration (g/L)': f"{grams:.6f}"})
                         
                         if recipe_data:
                             recipe_df = pd.DataFrame(recipe_data)
@@ -633,8 +641,8 @@ def main():
                         st.write("**Selected salts:**")
                         st.write(selected_salts)
                         st.write("**Salt concentrations (g/L):**")
-                        for salt, conc in zip(selected_salts, g_opt):
-                            if conc > 0.0001:  # Show even very small concentrations
+                        for salt, conc in zip(selected_salts, g_best):
+                            if conc > 1e-6:  # Show even very small concentrations
                                 st.write(f"{salt}: {conc:.6f}")
                         
                         st.write("**Micronutrient Analysis:**")
@@ -648,9 +656,9 @@ def main():
                                 st.write(f"{element}: {actual:.6f} mg/L (no target set)")
                         
                         st.write("**Penalty breakdown:**")
-                        e_debug = elemental_totals(g_opt, selected_salts)
+                        e_debug = elemental_totals(g_best, selected_salts)
                         r_debug = calculate_ratios(e_debug)
-                        penalty_debug = penalty_function(g_opt, selected_salts, elem_bounds, ratio_bounds)
+                        penalty_debug = penalty_function(g_best, selected_salts, elem_bounds, ratio_bounds)
                         st.write(f"Total penalty: {penalty_debug:.2e}")
                         
                         # Show individual constraint violations
@@ -677,8 +685,8 @@ def main():
                         
                         # Show what each salt contributes
                         st.write("**Salt contributions to Cu and Mo:**")
-                        for salt, conc in zip(selected_salts, g_opt):
-                            if conc > 0.0001 and salt in STOICH_DATABASE:
+                        for salt, conc in zip(selected_salts, g_best):
+                            if conc > 1e-6 and salt in STOICH_DATABASE:
                                 salt_data = STOICH_DATABASE[salt]
                                 if 'Cu' in salt_data:
                                     cu_contribution = conc * salt_data['Cu']
@@ -690,12 +698,12 @@ def main():
                         # Test penalty function with different scenarios
                         st.write("**Penalty Function Testing:**")
                         # Test with zero micronutrients
-                        test_zero = np.zeros_like(g_opt)
+                        test_zero = np.zeros_like(g_best)
                         penalty_zero = penalty_function(test_zero, selected_salts, elem_bounds, ratio_bounds)
                         st.write(f"Penalty with zero micronutrients: {penalty_zero:.2e}")
                         
                         # Test with reasonable micronutrient values
-                        test_micro = g_opt.copy()
+                        test_micro = g_best.copy()
                         for i, salt in enumerate(selected_salts):
                             if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
                                 test_micro[i] = 0.001  # 1 mg/L equivalent
@@ -709,11 +717,11 @@ def main():
                             st.success("✅ Solution has low penalty - constraints met!")
                     
                     # Visualization
-                    if len([g for g in g_opt if g > 0.001]) > 0:
+                    if len([g for g in g_best if g > 1e-6]) > 0:
                         st.subheader("📈 Recipe Visualization")
                         
                         # Recipe bar chart using Streamlit
-                        nonzero_salts = [(salt, grams) for salt, grams in zip(selected_salts, g_opt) if grams > 0.001]
+                        nonzero_salts = [(salt, grams) for salt, grams in zip(selected_salts, g_disp) if grams > 1e-6]
                         if nonzero_salts:
                             salt_names, concentrations = zip(*nonzero_salts)
                             
