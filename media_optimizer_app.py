@@ -427,7 +427,7 @@ def main():
         layout="wide"
     )
     
-    st.title("🧪 Tissue Culture Media Optimizer")
+    st.title("Jonny's Tissue Culture Media Optimizer")
     st.markdown("Optimize macro-salt recipes for tissue culture media using Monte Carlo seeding and evolutionary algorithms.")
     
     # Sidebar for main controls
@@ -446,8 +446,8 @@ def main():
         help="DE: Differential Evolution (global), GD: Gradient Descent (local)"
     )
     
-    n_trials = st.sidebar.slider("Number of optimization trials", 10, 20, 15, 
-                                 help="More trials for complex constraint satisfaction")
+    n_trials = st.sidebar.slider("Number of optimization trials", 1, 20, 10, 
+                                 help="More trials for complex constraint satisfaction. Use 1 for quick testing, 10+ for robust solutions.")
     
     # Main content area
     col1, col2 = st.columns([1, 1])
