@@ -138,23 +138,25 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
             elif r[ratio_name] > hi:
                 penalty += 1e6 + (r[ratio_name] - hi) ** 2
     
-    # CRITICAL: Force micronutrient inclusion
+    # Softer penalty for micronutrients with better scaling
     micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
     micronutrient_penalty = 0
     
-    # If no micronutrient salts are being used, add massive penalty
+    # If no micronutrient salts are being used, add penalty but not impossible
     if not micronutrient_salts_used:
-        penalty += 1e10  # Impossible penalty
+        penalty += 1e6  # High but not impossible penalty
     
     for micronutrient in micronutrients:
         if micronutrient in elem_bounds and micronutrient in e:
             target_min, target_max = elem_bounds[micronutrient]
             actual = e[micronutrient]
             if actual < target_min:
-                # Even stronger penalty for micronutrients
-                micronutrient_penalty += 1e8 + (target_min - actual) ** 2 * 10000
+                # Softer penalty with logarithmic scaling
+                violation = target_min - actual
+                micronutrient_penalty += 1e6 + np.log(1 + violation * 1000) * 1000
             elif actual > target_max:
-                micronutrient_penalty += 1e8 + (actual - target_max) ** 2 * 10000
+                violation = actual - target_max
+                micronutrient_penalty += 1e6 + np.log(1 + violation * 1000) * 1000
     
     penalty += micronutrient_penalty
     
@@ -313,6 +315,42 @@ def gradient_descent_optimizer(objective_func, x0, args, bounds, maxiter=1000):
     
     return Result(x, objective_func(x, *args))
 
+def smart_seed_generation(selected_salts, elem_bounds, bounds):
+    """Generate smart seeds that satisfy individual constraints"""
+    seeds = []
+    
+    # Calculate required concentrations for each element
+    element_requirements = {}
+    for element, (target_min, target_max) in elem_bounds.items():
+        element_requirements[element] = (target_min + target_max) / 2  # Use midpoint
+    
+    # Create seeds that satisfy individual micronutrient constraints
+    micronutrient_salts = [(i, salt) for i, salt in enumerate(selected_salts) 
+                          if STOICH_DATABASE[salt]['category'] == 'Micronutrient']
+    
+    for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
+        if element in element_requirements:
+            target = element_requirements[element]
+            # Find salts that provide this element
+            element_salts = [(i, salt) for i, salt in enumerate(selected_salts) 
+                           if element in STOICH_DATABASE[salt]]
+            
+            if element_salts:
+                # Create seed with this element satisfied
+                seed = np.array([(lo + hi) / 2 for lo, hi in bounds])
+                for idx, salt in element_salts:
+                    # Calculate required concentration
+                    mg_per_g = STOICH_DATABASE[salt][element]
+                    required_g = target / mg_per_g
+                    lo, hi = bounds[idx]
+                    seed[idx] = max(lo, min(hi, required_g))
+                
+                pen = penalty_function(seed, selected_salts, elem_bounds, ratio_bounds)
+                if pen < 1e7:  # Allow higher penalty for individual constraint seeds
+                    seeds.append(seed)
+    
+    return seeds
+
 def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_trials=1):
     """Optimize media composition using specified algorithm"""
     bounds = generate_salt_bounds(selected_salts)
@@ -320,47 +358,41 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
     best_result = None
     best_penalty = np.inf
     
+    # Improved parameters based on problem complexity
+    n_salts = len(selected_salts)
+    popsize = max(75, n_salts * 5)  # 5× number of salts, minimum 75
+    maxiter = 3000  # More generations for convergence
+    n_trials = max(10, n_trials)  # Minimum 10 trials
+    
     for trial in range(n_trials):
-        # Seeded Monte Carlo pre-search
+        # Smart seeding instead of random
         random.seed(42 + trial)
         np.random.seed(42 + trial)
         seed_pool = []
         
-        # Pre-seed with micronutrient salts
-        micronutrient_indices = [i for i, salt in enumerate(selected_salts) 
-                               if STOICH_DATABASE[salt]['category'] == 'Micronutrient']
+        # Generate smart seeds
+        smart_seeds = smart_seed_generation(selected_salts, elem_bounds, bounds)
+        seed_pool.extend(smart_seeds)
         
-        # Create multiple seeds with micronutrients included
-        if micronutrient_indices:
-            for seed_trial in range(10):  # Create 10 different seeds
-                seed_with_micronutrients = np.array([(lo + hi) / 2 for lo, hi in bounds])
-                # Set micronutrient salts to reasonable values
-                for idx in micronutrient_indices:
-                    lo, hi = bounds[idx]
-                    # Use different values for each seed
-                    seed_with_micronutrients[idx] = lo + (hi - lo) * (seed_trial / 10)
-                pen = penalty_function(seed_with_micronutrients, selected_salts, elem_bounds, ratio_bounds)
-                if pen < 1e8:  # Allow higher penalty for initial seeds
-                    seed_pool.append(seed_with_micronutrients)
-        
-        for _ in range(5000):
+        # Add some random seeds for diversity
+        for _ in range(1000):  # Reduced from 5000
             guess = np.array([random.uniform(lo, hi) for lo, hi in bounds])
             pen = penalty_function(guess, selected_salts, elem_bounds, ratio_bounds)
-            if pen < 1e5:
+            if pen < 1e6:  # Slightly higher tolerance
                 seed_pool.append(guess)
         
         if algorithm == 'DE':
-            # Custom Differential Evolution
+            # Enhanced Differential Evolution
             result = differential_evolution_optimizer(
                 penalty_function,
                 bounds,
                 args=(selected_salts, elem_bounds, ratio_bounds),
-                maxiter=1000,
-                popsize=30,
+                maxiter=maxiter,
+                popsize=popsize,
                 seed=42 + trial
             )
         
-        else:  # Gradient Descent (replaces SLSQP)
+        else:  # Gradient Descent
             if seed_pool:
                 x0 = seed_pool[0]
             else:
@@ -371,7 +403,7 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
                 x0,
                 args=(selected_salts, elem_bounds, ratio_bounds),
                 bounds=bounds,
-                maxiter=1000
+                maxiter=maxiter
             )
         
         if hasattr(result, 'fun') and result.fun < best_penalty:
@@ -407,7 +439,8 @@ def main():
         help="DE: Differential Evolution (global), GD: Gradient Descent (local)"
     )
     
-    n_trials = st.sidebar.slider("Number of optimization trials", 1, 5, 1)
+    n_trials = st.sidebar.slider("Number of optimization trials", 10, 20, 15, 
+                                 help="More trials for complex constraint satisfaction")
     
     # Main content area
     col1, col2 = st.columns([1, 1])
