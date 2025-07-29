@@ -503,7 +503,7 @@ def main():
                         
                         # Micronutrients
                         for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
-                            if element in e_opt:
+                            if element in e_opt and element in elem_bounds:
                                 target_min, target_max = elem_bounds[element]
                                 actual = e_opt[element]
                                 status = "✅" if target_min <= actual <= target_max else "❌"
@@ -512,6 +512,15 @@ def main():
                                     'Actual': f"{actual:.3f}",
                                     'Target': f"{target_min:.3f}-{target_max:.3f}",
                                     'Status': status
+                                })
+                            elif element in e_opt:
+                                # Element calculated but not in bounds (shouldn't happen)
+                                actual = e_opt[element]
+                                element_data.append({
+                                    'Element': element,
+                                    'Actual': f"{actual:.3f}",
+                                    'Target': "Not specified",
+                                    'Status': "⚠️"
                                 })
                         
                         element_df = pd.DataFrame(element_data)
@@ -540,6 +549,19 @@ def main():
                         feasible = result.fun < 1e5
                         st.info(f"**Optimization Status:** {'✅ Feasible' if feasible else '❌ Infeasible'} | "
                                f"**Final Penalty:** {result.fun:.2e} | **Algorithm:** {algorithm}")
+                    
+                    # Debug information
+                    with st.expander("🔍 Debug Information"):
+                        st.write("**Elements being optimized:**")
+                        st.write(list(elem_bounds.keys()))
+                        st.write("**Elements calculated:**")
+                        st.write(list(e_opt.keys()))
+                        st.write("**Selected salts:**")
+                        st.write(selected_salts)
+                        st.write("**Salt concentrations (g/L):**")
+                        for salt, conc in zip(selected_salts, g_opt):
+                            if conc > 0.001:
+                                st.write(f"{salt}: {conc:.6f}")
                     
                     # Visualization
                     if len([g for g in g_opt if g > 0.001]) > 0:
