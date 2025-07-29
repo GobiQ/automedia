@@ -112,6 +112,16 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
     
     penalty = 0
     
+    # Check if micronutrient salts are being used
+    micronutrient_salts_used = False
+    micronutrient_salt_indices = [i for i, salt in enumerate(selected_salts) 
+                                 if STOICH_DATABASE[salt]['category'] == 'Micronutrient']
+    
+    if micronutrient_salt_indices:
+        micronutrient_concentrations = [g[i] for i in micronutrient_salt_indices]
+        if any(conc > 0.0001 for conc in micronutrient_concentrations):
+            micronutrient_salts_used = True
+    
     # Element constraints - treat ALL elements equally (macronutrients and micronutrients)
     for el, (lo, hi) in elem_bounds.items():
         if el in e:
@@ -128,18 +138,23 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
             elif r[ratio_name] > hi:
                 penalty += 1e6 + (r[ratio_name] - hi) ** 2
     
-    # Special handling for micronutrients - make them even more critical
+    # CRITICAL: Force micronutrient inclusion
     micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
     micronutrient_penalty = 0
+    
+    # If no micronutrient salts are being used, add massive penalty
+    if not micronutrient_salts_used:
+        penalty += 1e10  # Impossible penalty
+    
     for micronutrient in micronutrients:
         if micronutrient in elem_bounds and micronutrient in e:
             target_min, target_max = elem_bounds[micronutrient]
             actual = e[micronutrient]
             if actual < target_min:
                 # Even stronger penalty for micronutrients
-                micronutrient_penalty += 1e7 + (target_min - actual) ** 2 * 1000
+                micronutrient_penalty += 1e8 + (target_min - actual) ** 2 * 10000
             elif actual > target_max:
-                micronutrient_penalty += 1e7 + (actual - target_max) ** 2 * 1000
+                micronutrient_penalty += 1e8 + (actual - target_max) ** 2 * 10000
     
     penalty += micronutrient_penalty
     
@@ -227,6 +242,9 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
             # Ensure bounds
             for j, (lo, hi) in enumerate(bounds):
                 trial[j] = max(lo, min(hi, trial[j]))
+                # Ensure micronutrient salts never go to zero
+                if lo > 0:  # This is a micronutrient salt
+                    trial[j] = max(lo, trial[j])  # Force minimum concentration
             
             # Selection
             trial_fitness = objective_func(trial, *args)
@@ -312,16 +330,18 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
         micronutrient_indices = [i for i, salt in enumerate(selected_salts) 
                                if STOICH_DATABASE[salt]['category'] == 'Micronutrient']
         
-        # Create a seed with micronutrients included
+        # Create multiple seeds with micronutrients included
         if micronutrient_indices:
-            seed_with_micronutrients = np.array([(lo + hi) / 2 for lo, hi in bounds])
-            # Set micronutrient salts to reasonable values
-            for idx in micronutrient_indices:
-                lo, hi = bounds[idx]
-                seed_with_micronutrients[idx] = (lo + hi) / 2  # Mid-point
-            pen = penalty_function(seed_with_micronutrients, selected_salts, elem_bounds, ratio_bounds)
-            if pen < 1e6:  # Allow higher penalty for initial seeds
-                seed_pool.append(seed_with_micronutrients)
+            for seed_trial in range(10):  # Create 10 different seeds
+                seed_with_micronutrients = np.array([(lo + hi) / 2 for lo, hi in bounds])
+                # Set micronutrient salts to reasonable values
+                for idx in micronutrient_indices:
+                    lo, hi = bounds[idx]
+                    # Use different values for each seed
+                    seed_with_micronutrients[idx] = lo + (hi - lo) * (seed_trial / 10)
+                pen = penalty_function(seed_with_micronutrients, selected_salts, elem_bounds, ratio_bounds)
+                if pen < 1e8:  # Allow higher penalty for initial seeds
+                    seed_pool.append(seed_with_micronutrients)
         
         for _ in range(5000):
             guess = np.array([random.uniform(lo, hi) for lo, hi in bounds])
