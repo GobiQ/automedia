@@ -112,7 +112,7 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
     
     penalty = 0
     
-    # Element constraints
+    # Element constraints - treat ALL elements equally (macronutrients and micronutrients)
     for el, (lo, hi) in elem_bounds.items():
         if el in e:
             if e[el] < lo:
@@ -127,18 +127,6 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
                 penalty += 1e6 + (lo - r[ratio_name]) ** 2
             elif r[ratio_name] > hi:
                 penalty += 1e6 + (r[ratio_name] - hi) ** 2
-    
-    # Additional penalty for missing micronutrients (encourage their inclusion)
-    micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
-    for micronutrient in micronutrients:
-        if micronutrient in elem_bounds and micronutrient in e:
-            target_min, target_max = elem_bounds[micronutrient]
-            actual = e[micronutrient]
-            if actual < target_min:
-                # Much stronger penalty for missing micronutrients
-                penalty += 1e6 + (target_min - actual) ** 2 * 100
-            elif actual > target_max:
-                penalty += 1e6 + (actual - target_max) ** 2 * 100
     
     # Minimize total salt concentration if feasible
     if penalty < 1e5:
