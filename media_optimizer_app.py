@@ -206,6 +206,22 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     selected_salts = args[0]  # First argument is selected_salts
     elem_bounds = args[1]     # Second argument is elem_bounds
     
+    # FIXED: Pre-calculate optimal micronutrient concentrations FIRST
+    optimal_micronutrients = {}
+    for j, salt in enumerate(selected_salts):
+        if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
+            # Find which element this salt provides
+            for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
+                if element in elem_bounds and element in STOICH_DATABASE[salt]:
+                    min_val, max_val = elem_bounds[element]
+                    target = (min_val + max_val) / 2  # Target middle of range
+                    mg_per_g = STOICH_DATABASE[salt][element]
+                    optimal_g_per_l = target / mg_per_g
+                    # Ensure it fits within bounds
+                    lo, hi = bounds[j]
+                    optimal_micronutrients[j] = max(lo, min(hi, optimal_g_per_l))
+                    break
+    
     # Initialize population with seed pool if available
     population = []
     
@@ -231,22 +247,6 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     
     best_individual = None
     best_fitness = np.inf
-    
-    # Pre-calculate optimal micronutrient concentrations for injection
-    optimal_micronutrients = {}
-    for j, salt in enumerate(selected_salts):
-        if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
-            # Find which element this salt provides
-            for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
-                if element in elem_bounds and element in STOICH_DATABASE[salt]:
-                    min_val, max_val = elem_bounds[element]
-                    target = (min_val + max_val) / 2  # Target middle of range
-                    mg_per_g = STOICH_DATABASE[salt][element]
-                    optimal_g_per_l = target / mg_per_g
-                    # Ensure it fits within bounds
-                    lo, hi = bounds[j]
-                    optimal_micronutrients[j] = max(lo, min(hi, optimal_g_per_l))
-                    break
     
     # Evolution loop
     for generation in range(maxiter):
@@ -384,11 +384,31 @@ def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
                     if element in salt_data:
                         current_total += g_forced[i] * salt_data[element]
             
+            # Store forcing info for display
+            if not hasattr(force_micronutrients_in_solution, 'forcing_log'):
+                force_micronutrients_in_solution.forcing_log = []
+            
+            force_micronutrients_in_solution.forcing_log.append(
+                f"Checking {element}: current={current_total:.8f} mg/L, target={min_target:.6f} mg/L"
+            )
+            
             # If below minimum, force the appropriate salt
             if current_total < min_target:
                 # Find the best salt to add for this micronutrient
                 best_salt_index = None
                 best_salt_name = None
+                
+                # Log available salts for this element
+                available_salts = []
+                for i, salt in enumerate(selected_salts):
+                    if salt in STOICH_DATABASE:
+                        salt_data = STOICH_DATABASE[salt]
+                        if element in salt_data:
+                            available_salts.append((i, salt, salt_data[element]))
+                
+                force_micronutrients_in_solution.forcing_log.append(
+                    f"Available {element} salts: {[salt for _, salt, _ in available_salts]}"
+                )
                 
                 for i, salt in enumerate(selected_salts):
                     if salt in STOICH_DATABASE:
@@ -403,10 +423,21 @@ def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
                             bounds = generate_salt_bounds(selected_salts)
                             lo, hi = bounds[i]  # Use correct index from full bounds list
                             
+                            force_micronutrients_in_solution.forcing_log.append(
+                                f"  {salt}: {mg_per_g:.1f} mg/g, need {total_needed_g_per_l:.8f} g/L, bounds [{lo:.6f}, {hi:.6f}]"
+                            )
+                            
                             if total_needed_g_per_l <= hi:
                                 best_salt_index = i
                                 best_salt_name = salt
+                                force_micronutrients_in_solution.forcing_log.append(
+                                    f"  ✅ Selected {salt} for {element}"
+                                )
                                 break
+                            else:
+                                force_micronutrients_in_solution.forcing_log.append(
+                                    f"  ❌ {salt} exceeds bounds"
+                                )
                 
                 # Force the micronutrient salt to the total needed amount
                 if best_salt_index is not None:
