@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tissue Culture Media Optimizer - Streamlit Web App
+Jonny's Tissue Culture Media Optimizer - Web App
 Search for optimal gram-per-litre macro-salt recipes that satisfy
 user-defined element ranges and nutrient-ratio windows.
 
@@ -365,28 +365,21 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
     n_trials = max(10, n_trials)  # Minimum 10 trials
     
     for trial in range(n_trials):
-        # Show progress
-        st.write(f"🔄 **Trial {trial + 1}/{n_trials}**")
-        
         # Smart seeding instead of random
         random.seed(42 + trial)
         np.random.seed(42 + trial)
         seed_pool = []
         
         # Generate smart seeds
-        st.write("📊 Generating smart seeds...")
         smart_seeds = smart_seed_generation(selected_salts, elem_bounds, ratio_bounds, bounds)
         seed_pool.extend(smart_seeds)
-        st.write(f"✅ Generated {len(smart_seeds)} smart seeds")
         
         # Add some random seeds for diversity
-        st.write("🎲 Adding random seeds for diversity...")
         for _ in range(1000):  # Reduced from 5000
             guess = np.array([random.uniform(lo, hi) for lo, hi in bounds])
             pen = penalty_function(guess, selected_salts, elem_bounds, ratio_bounds)
             if pen < 1e6:  # Slightly higher tolerance
                 seed_pool.append(guess)
-        st.write(f"✅ Generated {len(seed_pool)} total seeds")
         
         if algorithm == 'DE':
             # Enhanced Differential Evolution
@@ -422,7 +415,7 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
 # ─────────────────────────── Streamlit App
 def main():
     st.set_page_config(
-        page_title="Tissue Culture Media Optimizer",
+        page_title="Jonny's Tissue Culture Media Optimizer",
         page_icon="🧪",
         layout="wide"
     )
@@ -574,18 +567,6 @@ def main():
     st.header("Optimization Results")
     
     if st.button("🚀 Optimize Media Recipe", type="primary"):
-        # Show optimization parameters
-        n_salts = len(selected_salts)
-        popsize = max(75, n_salts * 5)
-        total_evaluations = n_trials * popsize * 3000
-        
-        st.info(f"🔧 **Optimization Parameters:**")
-        st.info(f"• **Trials:** {n_trials}")
-        st.info(f"• **Population Size:** {popsize} (scales with {n_salts} salts)")
-        st.info(f"• **Generations:** 3000")
-        st.info(f"• **Total Evaluations:** ~{total_evaluations:,}")
-        st.info(f"• **Estimated Time:** {total_evaluations/50000:.1f} minutes")
-        
         with st.spinner(f"Optimizing with {n_trials} trials... This may take several minutes for complex constraints."):
             try:
                 result = optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm, n_trials)
