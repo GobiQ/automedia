@@ -128,6 +128,21 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
             elif r[ratio_name] > hi:
                 penalty += 1e6 + (r[ratio_name] - hi) ** 2
     
+    # Special handling for micronutrients - make them even more critical
+    micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
+    micronutrient_penalty = 0
+    for micronutrient in micronutrients:
+        if micronutrient in elem_bounds and micronutrient in e:
+            target_min, target_max = elem_bounds[micronutrient]
+            actual = e[micronutrient]
+            if actual < target_min:
+                # Even stronger penalty for micronutrients
+                micronutrient_penalty += 1e7 + (target_min - actual) ** 2 * 1000
+            elif actual > target_max:
+                micronutrient_penalty += 1e7 + (actual - target_max) ** 2 * 1000
+    
+    penalty += micronutrient_penalty
+    
     # Minimize total salt concentration if feasible
     if penalty < 1e5:
         penalty += sum(g) * 0.01
@@ -182,7 +197,7 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     random.seed(seed)
     np.random.seed(seed)
     
-    # Initialize population
+    # Initialize population with more diversity
     population = []
     for _ in range(popsize):
         individual = np.array([random.uniform(lo, hi) for lo, hi in bounds])
@@ -198,12 +213,12 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
             candidates = [j for j in range(popsize) if j != i]
             a, b, c = random.sample(candidates, 3)
             
-            # Differential mutation
-            F = 0.8  # Differential weight
+            # Differential mutation with adaptive F
+            F = 0.8 if generation < maxiter // 2 else 0.5  # Adaptive differential weight
             mutant = population[a] + F * (population[b] - population[c])
             
-            # Crossover
-            CR = 0.9  # Crossover probability
+            # Crossover with adaptive CR
+            CR = 0.9 if generation < maxiter // 2 else 0.7  # Adaptive crossover probability
             trial = population[i].copy()
             for j in range(len(trial)):
                 if random.random() < CR:
@@ -215,11 +230,23 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
             
             # Selection
             trial_fitness = objective_func(trial, *args)
-            if trial_fitness < objective_func(population[i], *args):
+            current_fitness = objective_func(population[i], *args)
+            if trial_fitness < current_fitness:
                 population[i] = trial
                 if trial_fitness < best_fitness:
                     best_fitness = trial_fitness
                     best_individual = trial.copy()
+        
+        # Periodically inject diversity for micronutrients
+        if generation % 100 == 0 and generation > 0:
+            # Force some individuals to include micronutrients
+            for i in range(min(5, popsize // 2)):
+                individual = population[i]
+                # Ensure micronutrient salts have some concentration
+                for j, (lo, hi) in enumerate(bounds):
+                    if lo > 0:  # This is a micronutrient salt
+                        individual[j] = random.uniform(lo, hi)
+                population[i] = individual
     
     # Create result object similar to scipy
     class Result:
@@ -639,6 +666,27 @@ def main():
                                 if 'Mo' in salt_data:
                                     mo_contribution = conc * salt_data['Mo']
                                     st.write(f"{salt}: {mo_contribution:.6f} mg/L Mo")
+                        
+                        # Test penalty function with different scenarios
+                        st.write("**Penalty Function Testing:**")
+                        # Test with zero micronutrients
+                        test_zero = np.zeros_like(g_opt)
+                        penalty_zero = penalty_function(test_zero, selected_salts, elem_bounds, ratio_bounds)
+                        st.write(f"Penalty with zero micronutrients: {penalty_zero:.2e}")
+                        
+                        # Test with reasonable micronutrient values
+                        test_micro = g_opt.copy()
+                        for i, salt in enumerate(selected_salts):
+                            if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
+                                test_micro[i] = 0.001  # 1 mg/L equivalent
+                        penalty_micro = penalty_function(test_micro, selected_salts, elem_bounds, ratio_bounds)
+                        st.write(f"Penalty with micronutrients: {penalty_micro:.2e}")
+                        
+                        st.write(f"**Best solution penalty: {penalty_debug:.2e}**")
+                        if penalty_debug > 1e6:
+                            st.error("❌ Solution has high penalty - constraints not met!")
+                        else:
+                            st.success("✅ Solution has low penalty - constraints met!")
                     
                     # Visualization
                     if len([g for g in g_opt if g > 0.001]) > 0:
