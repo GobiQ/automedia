@@ -209,9 +209,9 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     # Initialize population with seed pool if available
     population = []
     
-    # Use seed pool for 30% of population if available
+    # Use seed pool for 50% of population if available (increased from 30%)
     if seed_pool and len(seed_pool) > 0:
-        n_seeds = min(len(seed_pool), int(popsize * 0.3))
+        n_seeds = min(len(seed_pool), int(popsize * 0.5))
         for i in range(n_seeds):
             seed_individual = seed_pool[i % len(seed_pool)].copy()
             # Ensure bounds
@@ -223,6 +223,11 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     while len(population) < popsize:
         individual = np.array([random.uniform(lo, hi) for lo, hi in bounds])
         population.append(individual)
+    
+    # IMPROVED: Inject optimal micronutrients into ALL initial population
+    for individual in population:
+        for j, optimal_conc in optimal_micronutrients.items():
+            individual[j] = optimal_conc
     
     best_individual = None
     best_fitness = np.inf
@@ -265,6 +270,11 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
             for j, (lo, hi) in enumerate(bounds):
                 trial[j] = max(lo, min(hi, trial[j]))
             
+            # IMPROVED: Force micronutrients into trial solution
+            for j, optimal_conc in optimal_micronutrients.items():
+                if random.random() < 0.3:  # 30% chance to force optimal micronutrient
+                    trial[j] = optimal_conc
+            
             # Selection
             trial_fitness = objective_func(trial, *args)
             current_fitness = objective_func(population[i], *args)
@@ -274,10 +284,10 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
                     best_fitness = trial_fitness
                     best_individual = trial.copy()
         
-        # FIXED: Periodically inject optimal micronutrient concentrations
-        if generation % 100 == 0 and generation > 0:
+        # IMPROVED: Inject optimal micronutrient concentrations more frequently
+        if generation % 25 == 0:  # Every 25 generations instead of 100
             # Inject optimal micronutrient values into some individuals
-            for i in range(min(5, popsize // 2)):
+            for i in range(min(10, popsize // 2)):  # More individuals
                 individual = population[i]
                 # Set micronutrient salts to their optimal values
                 for j, optimal_conc in optimal_micronutrients.items():
@@ -714,8 +724,15 @@ def main():
                 if result is not None and hasattr(result, 'x'):
                     g_best = result.x.copy()  # Use unrounded for calculations
                     
-                    # Force micronutrients to meet minimum targets
+                    st.write(f"**Pre-forcing penalty:** {result.fun:.2e}")
+                    
+                    # ALWAYS force micronutrients to meet minimum targets, regardless of penalty
                     g_best = force_micronutrients_in_solution(g_best, selected_salts, elem_bounds)
+                    
+                    # Recalculate penalty after forcing
+                    final_penalty = penalty_function(g_best, selected_salts, elem_bounds, ratio_bounds)
+                    
+                    st.write(f"**Post-forcing penalty:** {final_penalty:.2e}")
                     
                     e_opt = elemental_totals(g_best, selected_salts)
                     r_opt = calculate_ratios(e_opt)
@@ -798,9 +815,9 @@ def main():
                     
                     # Optimization info
                     if hasattr(result, 'fun'):
-                        feasible = result.fun < 1e5
+                        feasible = final_penalty < 1e5
                         st.info(f"**Optimization Status:** {'✅ Feasible' if feasible else '❌ Infeasible'} | "
-                               f"**Final Penalty:** {result.fun:.2e} | **Algorithm:** {algorithm}")
+                               f"**Original Penalty:** {result.fun:.2e} | **Final Penalty:** {final_penalty:.2e} | **Algorithm:** {algorithm}")
                     
                     # Debug information
                     with st.expander("🔍 Debug Information"):
