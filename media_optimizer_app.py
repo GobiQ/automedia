@@ -151,16 +151,16 @@ def generate_salt_bounds(selected_salts):
         'NaH2PO4·H2O': (0, 0.5),
         '(NH4)2SO4': (0, 1.0),
         'NaNO3': (0, 2.0),
-        # Micronutrient bounds (much smaller concentrations)
-        'H3BO3': (0, 0.01),
-        'MnSO4·H2O': (0, 0.01),
-        'ZnSO4·7H2O': (0, 0.01),
-        'CuSO4·5H2O': (0, 0.01),
-        'Na2MoO4·2H2O': (0, 0.001),
-        'FeSO4·7H2O': (0, 0.01),
-        'Na2EDTA·2H2O': (0, 0.01),
-        'MnCl2': (0, 0.01),
-        'CuCl2': (0, 0.01),
+        # Micronutrient bounds (calculated for target ranges)
+        'H3BO3': (0, 0.02),  # For 0.5-3.0 mg/L B
+        'MnSO4·H2O': (0, 0.03),  # For 2.0-10.0 mg/L Mn
+        'ZnSO4·7H2O': (0, 0.01),  # For 0.5-2.0 mg/L Zn
+        'CuSO4·5H2O': (0, 0.001),  # For 0.01-0.1 mg/L Cu
+        'Na2MoO4·2H2O': (0, 0.001),  # For 0.01-0.1 mg/L Mo
+        'FeSO4·7H2O': (0, 0.05),  # For 2.0-10.0 mg/L Fe
+        'Na2EDTA·2H2O': (0, 0.03),  # For Fe chelation
+        'MnCl2': (0, 0.04),  # For 2.0-10.0 mg/L Mn
+        'CuCl2': (0, 0.001),  # For 0.01-0.1 mg/L Cu
     }
     
     return [bounds_dict.get(salt, (0, 1.0)) for salt in selected_salts]
@@ -560,8 +560,35 @@ def main():
                         st.write(selected_salts)
                         st.write("**Salt concentrations (g/L):**")
                         for salt, conc in zip(selected_salts, g_opt):
-                            if conc > 0.001:
+                            if conc > 0.0001:  # Show even very small concentrations
                                 st.write(f"{salt}: {conc:.6f}")
+                        
+                        st.write("**Micronutrient Analysis:**")
+                        for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
+                            if element in e_opt and element in elem_bounds:
+                                target_min, target_max = elem_bounds[element]
+                                actual = e_opt[element]
+                                st.write(f"{element}: {actual:.6f} mg/L (target: {target_min:.3f}-{target_max:.3f})")
+                            elif element in e_opt:
+                                actual = e_opt[element]
+                                st.write(f"{element}: {actual:.6f} mg/L (no target set)")
+                        
+                        st.write("**Penalty breakdown:**")
+                        e_debug = elemental_totals(g_opt, selected_salts)
+                        r_debug = calculate_ratios(e_debug)
+                        penalty_debug = penalty_function(g_opt, selected_salts, elem_bounds, ratio_bounds)
+                        st.write(f"Total penalty: {penalty_debug:.2e}")
+                        
+                        # Show individual constraint violations
+                        for el, (lo, hi) in elem_bounds.items():
+                            if el in e_debug:
+                                actual = e_debug[el]
+                                if actual < lo:
+                                    st.write(f"❌ {el}: {actual:.6f} < {lo:.6f}")
+                                elif actual > hi:
+                                    st.write(f"❌ {el}: {actual:.6f} > {hi:.6f}")
+                                else:
+                                    st.write(f"✅ {el}: {actual:.6f} in range [{lo:.6f}, {hi:.6f}]")
                     
                     # Visualization
                     if len([g for g in g_opt if g > 0.001]) > 0:
