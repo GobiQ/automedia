@@ -369,7 +369,7 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
     return micronutrient_seeds
 
 @st.cache_data(ttl=60)  # Cache for 60 seconds to allow for updates
-def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
+def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds, cache_buster=None):
     """Force micronutrients to meet minimum targets if they're missing"""
     g_forced = g_best.copy()
     
@@ -782,6 +782,7 @@ def main():
                     
                     # ALWAYS force micronutrients to meet minimum targets, regardless of penalty
                     st.write("**🔧 Calling forcing function...**")
+                    st.write("**🔧 CACHE BUSTER: This should show if new code is running**")
                     
                     # Show pre-forcing Cu and Mo totals
                     pre_cu_total = 0
@@ -794,7 +795,10 @@ def main():
                                 pre_mo_total += g_best[i] * STOICH_DATABASE[salt]['Mo']
                     st.write(f"**Pre-forcing totals:** Cu={pre_cu_total:.8f} mg/L, Mo={pre_mo_total:.8f} mg/L")
                     
-                    g_best = force_micronutrients_in_solution(g_best, selected_salts, elem_bounds)
+                    # Force cache refresh by adding a unique parameter
+                    import time
+                    cache_buster = int(time.time())
+                    g_best = force_micronutrients_in_solution(g_best, selected_salts, elem_bounds, cache_buster)
                     
                     # Show post-forcing Cu and Mo totals
                     post_cu_total = 0
