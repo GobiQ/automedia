@@ -197,7 +197,7 @@ def generate_salt_bounds(selected_salts):
     
     return bounds
 
-@st.cache_data(ttl=60)  # Cache for 60 seconds to allow for updates
+# Remove cache decorator completely to force fresh execution
 def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000, popsize=30, seed=42, seed_pool=None):
     """Custom implementation of differential evolution optimization"""
     random.seed(seed)
@@ -368,7 +368,7 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
     
     return micronutrient_seeds
 
-@st.cache_data(ttl=60)  # Cache for 60 seconds to allow for updates
+# Remove cache decorator completely to force fresh execution
 def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds, cache_buster=None):
     """Force micronutrients to meet minimum targets if they're missing"""
     g_forced = g_best.copy()
@@ -621,8 +621,12 @@ def main():
         st.rerun()
     
     # Show version info
-    st.sidebar.markdown("**Version:** 2.1.0 (Fixed DE micronutrient injection)")
-    st.sidebar.markdown("**Last Update:** Fixed optimal_micronutrients variable order")
+    st.sidebar.markdown("**Version:** 2.2.0 (Removed cache decorators)")
+    st.sidebar.markdown("**Last Update:** Removed cache decorators to force fresh execution")
+    
+    # Force version check
+    if st.sidebar.button("🔄 Force Refresh", help="Force refresh to ensure latest code is running"):
+        st.rerun()
     
     st.title("🧪 Tissue Culture Media Optimizer")
     st.markdown("Optimize macro-salt recipes for tissue culture media using Monte Carlo seeding and evolutionary algorithms.")
