@@ -412,7 +412,12 @@ def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
                     # Set the best salt to provide exactly the minimum needed
                     g_forced[best_salt_index] = total_needed_g_per_l
                     
-                    print(f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L")
+                    # Store forcing info for display (print doesn't show in Streamlit)
+                    if not hasattr(force_micronutrients_in_solution, 'forcing_log'):
+                        force_micronutrients_in_solution.forcing_log = []
+                    force_micronutrients_in_solution.forcing_log.append(
+                        f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L"
+                    )
     
     return g_forced
 
@@ -1027,6 +1032,51 @@ def main():
                                         deficit = min_target - original_total
                                         st.write(f"    Deficit was: {deficit:.8f} mg/L")
                                         st.write(f"    Total needed: {min_target:.8f} mg/L")
+                        
+                        # Show forcing function logs
+                        if hasattr(force_micronutrients_in_solution, 'forcing_log'):
+                            st.write("**🔧 Forcing Function Logs:**")
+                            for log_entry in force_micronutrients_in_solution.forcing_log:
+                                st.write(f"  {log_entry}")
+                            # Clear the log for next run
+                            force_micronutrients_in_solution.forcing_log = []
+                        else:
+                            st.write("**🔧 Forcing Function Logs:** No forcing applied")
+                        
+                        # Detailed forcing analysis
+                        st.write("**🔧 Detailed Forcing Analysis:**")
+                        for element in ['Cu', 'Mo']:
+                            if element in elem_bounds:
+                                min_target, max_target = elem_bounds[element]
+                                st.write(f"**{element} Analysis:**")
+                                
+                                # Show all salts that provide this element
+                                element_salts = []
+                                for i, salt in enumerate(selected_salts):
+                                    if salt in STOICH_DATABASE and element in STOICH_DATABASE[salt]:
+                                        element_salts.append((i, salt, STOICH_DATABASE[salt][element]))
+                                
+                                st.write(f"  Salts providing {element}: {[salt for _, salt, _ in element_salts]}")
+                                
+                                # Show original vs forced concentrations
+                                for i, salt, mg_per_g in element_salts:
+                                    original_conc = original_g[i]
+                                    forced_conc = forced_g[i]
+                                    original_contribution = original_conc * mg_per_g
+                                    forced_contribution = forced_conc * mg_per_g
+                                    
+                                    st.write(f"    {salt}: {original_conc:.8f} → {forced_conc:.8f} g/L")
+                                    st.write(f"      Contribution: {original_contribution:.8f} → {forced_contribution:.8f} mg/L {element}")
+                                
+                                # Show totals
+                                original_total = sum(original_g[i] * mg_per_g for i, _, mg_per_g in element_salts)
+                                forced_total = sum(forced_g[i] * mg_per_g for i, _, mg_per_g in element_salts)
+                                st.write(f"  Total {element}: {original_total:.8f} → {forced_total:.8f} mg/L (target: {min_target:.6f}-{max_target:.6f})")
+                                
+                                if original_total < min_target:
+                                    st.write(f"  ✅ Forcing was needed and applied")
+                                else:
+                                    st.write(f"  ℹ️ No forcing needed - already met target")
                         
                         # Show DE optimal micronutrient injection values
                         st.write("**🧬 DE Optimal Micronutrient Injection:**")
