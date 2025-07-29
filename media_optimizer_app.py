@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tissue Culture Media Optimizer - Streamlit Web App
+Jonny's Tissue Culture Media Optimizer - Streamlit Web App
 Search for optimal gram-per-litre macro-salt recipes that satisfy
 user-defined element ranges and nutrient-ratio windows.
 
