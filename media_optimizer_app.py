@@ -10,9 +10,9 @@ Dependencies: streamlit, numpy, scipy, pandas
 import streamlit as st
 import numpy as np
 import pandas as pd
-from scipy.optimize import differential_evolution, minimize
 import plotly.express as px
 import plotly.graph_objects as go
+import random
 
 # ─────────────────────────── Stoichiometry Database
 STOICH_DATABASE = {
@@ -146,6 +146,97 @@ def generate_salt_bounds(selected_salts):
     
     return [bounds_dict.get(salt, (0, 1.0)) for salt in selected_salts]
 
+def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000, popsize=30, seed=42):
+    """Custom implementation of differential evolution optimization"""
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    # Initialize population
+    population = []
+    for _ in range(popsize):
+        individual = np.array([random.uniform(lo, hi) for lo, hi in bounds])
+        population.append(individual)
+    
+    best_individual = None
+    best_fitness = np.inf
+    
+    # Evolution loop
+    for generation in range(maxiter):
+        for i in range(popsize):
+            # Select three random individuals
+            candidates = [j for j in range(popsize) if j != i]
+            a, b, c = random.sample(candidates, 3)
+            
+            # Differential mutation
+            F = 0.8  # Differential weight
+            mutant = population[a] + F * (population[b] - population[c])
+            
+            # Crossover
+            CR = 0.9  # Crossover probability
+            trial = population[i].copy()
+            for j in range(len(trial)):
+                if random.random() < CR:
+                    trial[j] = mutant[j]
+            
+            # Ensure bounds
+            for j, (lo, hi) in enumerate(bounds):
+                trial[j] = max(lo, min(hi, trial[j]))
+            
+            # Selection
+            trial_fitness = objective_func(trial, *args)
+            if trial_fitness < objective_func(population[i], *args):
+                population[i] = trial
+                if trial_fitness < best_fitness:
+                    best_fitness = trial_fitness
+                    best_individual = trial.copy()
+    
+    # Create result object similar to scipy
+    class Result:
+        def __init__(self, x, fun):
+            self.x = x
+            self.fun = fun
+    
+    return Result(best_individual, best_fitness)
+
+def gradient_descent_optimizer(objective_func, x0, args, bounds, maxiter=1000):
+    """Custom implementation of gradient descent optimization"""
+    x = np.array(x0)
+    learning_rate = 0.01
+    
+    for iteration in range(maxiter):
+        # Simple finite difference gradient
+        grad = np.zeros_like(x)
+        h = 1e-6
+        
+        for i in range(len(x)):
+            x_plus = x.copy()
+            x_plus[i] += h
+            x_minus = x.copy()
+            x_minus[i] -= h
+            
+            grad[i] = (objective_func(x_plus, *args) - objective_func(x_minus, *args)) / (2 * h)
+        
+        # Update
+        x_new = x - learning_rate * grad
+        
+        # Apply bounds
+        for i, (lo, hi) in enumerate(bounds):
+            x_new[i] = max(lo, min(hi, x_new[i]))
+        
+        # Check convergence
+        if np.linalg.norm(x_new - x) < 1e-6:
+            break
+        
+        x = x_new
+    
+    # Create result object similar to scipy
+    class Result:
+        def __init__(self, x, fun):
+            self.x = x
+            self.fun = fun
+    
+    return Result(x, objective_func(x, *args))
+
 def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_trials=1):
     """Optimize media composition using specified algorithm"""
     bounds = generate_salt_bounds(selected_salts)
@@ -155,47 +246,39 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
     
     for trial in range(n_trials):
         # Seeded Monte Carlo pre-search
+        random.seed(42 + trial)
         np.random.seed(42 + trial)
         seed_pool = []
         
         for _ in range(5000):
-            guess = np.array([np.random.uniform(lo, hi) for lo, hi in bounds])
+            guess = np.array([random.uniform(lo, hi) for lo, hi in bounds])
             pen = penalty_function(guess, selected_salts, elem_bounds, ratio_bounds)
             if pen < 1e5:
                 seed_pool.append(guess)
         
         if algorithm == 'DE':
-            # Differential Evolution
-            if len(seed_pool) >= 5:
-                init_pop = np.vstack(seed_pool[:min(15, len(seed_pool))])
-            else:
-                init_pop = 'latinhypercube'
-            
-            result = differential_evolution(
+            # Custom Differential Evolution
+            result = differential_evolution_optimizer(
                 penalty_function,
                 bounds,
                 args=(selected_salts, elem_bounds, ratio_bounds),
-                init=init_pop,
-                popsize=30,
                 maxiter=1000,
-                tol=1e-9,
-                seed=42 + trial,
-                polish=True
+                popsize=30,
+                seed=42 + trial
             )
         
-        else:  # SLSQP
+        else:  # Gradient Descent (replaces SLSQP)
             if seed_pool:
                 x0 = seed_pool[0]
             else:
                 x0 = np.array([(lo + hi) / 2 for lo, hi in bounds])
             
-            result = minimize(
+            result = gradient_descent_optimizer(
                 penalty_function,
                 x0,
                 args=(selected_salts, elem_bounds, ratio_bounds),
-                method='SLSQP',
                 bounds=bounds,
-                options={'maxiter': 1000, 'ftol': 1e-9}
+                maxiter=1000
             )
         
         if hasattr(result, 'fun') and result.fun < best_penalty:
@@ -227,8 +310,8 @@ def main():
     # Algorithm selection
     algorithm = st.sidebar.selectbox(
         "Optimization Algorithm",
-        ["DE", "SLSQP"],
-        help="DE: Differential Evolution (global), SLSQP: Sequential Least Squares Programming (local)"
+        ["DE", "GD"],
+        help="DE: Differential Evolution (global), GD: Gradient Descent (local)"
     )
     
     n_trials = st.sidebar.slider("Number of optimization trials", 1, 5, 1)
