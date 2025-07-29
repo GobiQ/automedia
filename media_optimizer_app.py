@@ -315,7 +315,7 @@ def gradient_descent_optimizer(objective_func, x0, args, bounds, maxiter=1000):
     
     return Result(x, objective_func(x, *args))
 
-def smart_seed_generation(selected_salts, elem_bounds, bounds):
+def smart_seed_generation(selected_salts, elem_bounds, ratio_bounds, bounds):
     """Generate smart seeds that satisfy individual constraints"""
     seeds = []
     
@@ -371,7 +371,7 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
         seed_pool = []
         
         # Generate smart seeds
-        smart_seeds = smart_seed_generation(selected_salts, elem_bounds, bounds)
+        smart_seeds = smart_seed_generation(selected_salts, elem_bounds, ratio_bounds, bounds)
         seed_pool.extend(smart_seeds)
         
         # Add some random seeds for diversity
