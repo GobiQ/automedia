@@ -442,10 +442,13 @@ def generate_smart_seeds(selected_salts, elem_bounds, ratio_bounds, n_seeds=20):
                 else:
                     seed[i] = (lo + hi) * 0.5  # Default balanced
         
-        # Add small random perturbations (±15%) for diversity
+        # FIXED: Only perturb macronutrient salts, leave micronutrients at optimal values
         for i in range(len(seed)):
-            if seed[i] > 0:  # Only perturb non-zero values
+            salt = selected_salts[i]
+            if seed[i] > 0 and STOICH_DATABASE[salt]['category'] != 'Micronutrient':
+                # Add ±15% perturbations only to macronutrient salts
                 seed[i] *= (0.85 + 0.3 * random.random())
+            # Micronutrient salts remain at their analytically calculated optimal values
         
         # Ensure bounds
         bounds = generate_salt_bounds(selected_salts)
@@ -795,15 +798,49 @@ def main():
                         st.write(f"**Cu salts in smart seeds:** {cu_salts_in_seeds}")
                         st.write(f"**Mo salts in smart seeds:** {mo_salts_in_seeds}")
                         
+                        # Verify smart seed values are optimal
+                        st.write("**Smart Seed Verification:**")
+                        for salt, conc in micronutrient_seeds.items():
+                            if 'Cu' in STOICH_DATABASE[salt]:
+                                expected_cu = conc * STOICH_DATABASE[salt]['Cu']
+                                if 'Cu' in elem_bounds:
+                                    min_cu, max_cu = elem_bounds['Cu']
+                                    target_cu = (min_cu + max_cu) / 2
+                                    st.write(f"  {salt}: {conc:.8f} g/L → {expected_cu:.6f} mg/L Cu (target: {target_cu:.6f})")
+                            elif 'Mo' in STOICH_DATABASE[salt]:
+                                expected_mo = conc * STOICH_DATABASE[salt]['Mo']
+                                if 'Mo' in elem_bounds:
+                                    min_mo, max_mo = elem_bounds['Mo']
+                                    target_mo = (min_mo + max_mo) / 2
+                                    st.write(f"  {salt}: {conc:.8f} g/L → {expected_mo:.6f} mg/L Mo (target: {target_mo:.6f})")
+                        
                         # Show what Cu and Mo targets should be
                         if 'Cu' in elem_bounds:
                             min_cu, max_cu = elem_bounds['Cu']
                             target_cu = (min_cu + max_cu) / 2
                             st.write(f"**Cu target in smart seeds:** {target_cu:.6f} mg/L")
+                            # Calculate what the salt concentration should be
+                            cu_salt = None
+                            for salt in selected_salts:
+                                if salt in STOICH_DATABASE and 'Cu' in STOICH_DATABASE[salt]:
+                                    cu_salt = salt
+                                    break
+                            if cu_salt:
+                                required_g_per_l = target_cu / STOICH_DATABASE[cu_salt]['Cu']
+                                st.write(f"**Required {cu_salt} concentration:** {required_g_per_l:.8f} g/L")
                         if 'Mo' in elem_bounds:
                             min_mo, max_mo = elem_bounds['Mo']
                             target_mo = (min_mo + max_mo) / 2
                             st.write(f"**Mo target in smart seeds:** {target_mo:.6f} mg/L")
+                            # Calculate what the salt concentration should be
+                            mo_salt = None
+                            for salt in selected_salts:
+                                if salt in STOICH_DATABASE and 'Mo' in STOICH_DATABASE[salt]:
+                                    mo_salt = salt
+                                    break
+                            if mo_salt:
+                                required_g_per_l = target_mo / STOICH_DATABASE[mo_salt]['Mo']
+                                st.write(f"**Required {mo_salt} concentration:** {required_g_per_l:.8f} g/L")
                         
                         cross_contributions = calculate_cross_contributions(micronutrient_seeds, selected_salts)
                         st.write("**Cross-contributions from micronutrients:**")
