@@ -31,6 +31,17 @@ STOICH_DATABASE = {
     'NaH2PO4·H2O': {'Na': 166.7, 'P': 224.6, 'category': 'Alternative'},
     '(NH4)2SO4': {'N_NH4': 212.1, 'S': 242.7, 'category': 'Alternative'},
     'NaNO3': {'Na': 270.6, 'N_NO3': 164.7, 'category': 'Alternative'},
+    
+    # Micronutrient salts
+    'H3BO3': {'B': 174.8, 'category': 'Micronutrient'},
+    'MnSO4·H2O': {'Mn': 363.0, 'S': 188.0, 'category': 'Micronutrient'},
+    'ZnSO4·7H2O': {'Zn': 227.8, 'S': 111.5, 'category': 'Micronutrient'},
+    'CuSO4·5H2O': {'Cu': 254.5, 'S': 128.3, 'category': 'Micronutrient'},
+    'Na2MoO4·2H2O': {'Mo': 395.9, 'Na': 126.4, 'category': 'Micronutrient'},
+    'FeSO4·7H2O': {'Fe': 201.5, 'S': 115.4, 'category': 'Micronutrient'},
+    'Na2EDTA·2H2O': {'Na': 84.7, 'EDTA': 372.2, 'category': 'Micronutrient'},
+    'MnCl2': {'Mn': 278.5, 'Cl': 504.8, 'category': 'Micronutrient'},
+    'CuCl2': {'Cu': 370.5, 'Cl': 528.9, 'category': 'Micronutrient'},
 }
 
 # Default presets
@@ -70,7 +81,7 @@ DEFAULT_PRESETS = {
 # ─────────────────────────── Helper Functions
 def elemental_totals(g, selected_salts):
     """Calculate elemental totals from salt concentrations"""
-    e = {k: 0 for k in ['N_NO3', 'N_NH4', 'N', 'K', 'Ca', 'Mg', 'P', 'S', 'Na', 'Cl']}
+    e = {k: 0 for k in ['N_NO3', 'N_NH4', 'N', 'K', 'Ca', 'Mg', 'P', 'S', 'Na', 'Cl', 'B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe', 'EDTA']}
     
     for grams, salt in zip(g, selected_salts):
         if salt in STOICH_DATABASE:
@@ -140,6 +151,16 @@ def generate_salt_bounds(selected_salts):
         'NaH2PO4·H2O': (0, 0.5),
         '(NH4)2SO4': (0, 1.0),
         'NaNO3': (0, 2.0),
+        # Micronutrient bounds (much smaller concentrations)
+        'H3BO3': (0, 0.01),
+        'MnSO4·H2O': (0, 0.01),
+        'ZnSO4·7H2O': (0, 0.01),
+        'CuSO4·5H2O': (0, 0.01),
+        'Na2MoO4·2H2O': (0, 0.001),
+        'FeSO4·7H2O': (0, 0.01),
+        'Na2EDTA·2H2O': (0, 0.01),
+        'MnCl2': (0, 0.01),
+        'CuCl2': (0, 0.01),
     }
     
     return [bounds_dict.get(salt, (0, 1.0)) for salt in selected_salts]
@@ -330,7 +351,7 @@ def main():
             if preset_name != "Custom":
                 default_val = salt in DEFAULT_PRESETS[preset_name]['salts']
             else:
-                default_val = salt in ['Ca(NO3)2·4H2O', 'KNO3', 'NH4H2PO4', 'MgSO4·7H2O']
+                default_val = True  # Default all primary salts to checked
             
             if st.checkbox(salt, value=default_val, key=f"primary_{salt}"):
                 selected_primary.append(salt)
@@ -341,12 +362,24 @@ def main():
             if preset_name != "Custom":
                 default_val = salt in DEFAULT_PRESETS[preset_name]['salts']
             else:
-                default_val = False
+                default_val = True  # Default all alternative salts to checked
             
             if st.checkbox(salt, value=default_val, key=f"alt_{salt}"):
                 selected_alternative.append(salt)
         
-        selected_salts = selected_primary + selected_alternative
+        st.subheader("Micronutrient Salts")
+        micronutrient_salts = [salt for salt, data in STOICH_DATABASE.items() if data['category'] == 'Micronutrient']
+        selected_micronutrients = []
+        for salt in micronutrient_salts:
+            if preset_name != "Custom":
+                default_val = salt in DEFAULT_PRESETS[preset_name]['salts']
+            else:
+                default_val = True  # Default all micronutrients to checked
+            
+            if st.checkbox(salt, value=default_val, key=f"micronutrient_{salt}"):
+                selected_micronutrients.append(salt)
+        
+        selected_salts = selected_primary + selected_alternative + selected_micronutrients
         
         if not selected_salts:
             st.warning("Please select at least one salt.")
@@ -369,7 +402,7 @@ def main():
                 'N:K': (0.9, 1.2), 'Ca:Mg': (2.0, 4.0), 'P:K': (0.05, 0.067)
             }
         
-        st.subheader("Element Concentrations (mg/L)")
+        st.subheader("Macronutrient Concentrations (mg/L)")
         elem_bounds = {}
         
         for element in ['N', 'K', 'P', 'Ca', 'Mg', 'S']:
@@ -377,6 +410,26 @@ def main():
                 min_val, max_val = default_elements[element]
             else:
                 min_val, max_val = 0, 1000
+            
+            col_min, col_max = st.columns(2)
+            with col_min:
+                min_bound = st.number_input(f"{element} min", value=float(min_val), key=f"{element}_min")
+            with col_max:
+                max_bound = st.number_input(f"{element} max", value=float(max_val), key=f"{element}_max")
+            
+            elem_bounds[element] = (min_bound, max_bound)
+        
+        st.subheader("Micronutrient Concentrations (mg/L)")
+        micronutrient_defaults = {
+            'B': (0.5, 3.0), 'Mn': (2.0, 10.0), 'Zn': (0.5, 2.0),
+            'Cu': (0.01, 0.1), 'Mo': (0.01, 0.1), 'Fe': (2.0, 10.0)
+        }
+        
+        for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
+            if element in micronutrient_defaults:
+                min_val, max_val = micronutrient_defaults[element]
+            else:
+                min_val, max_val = 0, 10
             
             col_min, col_max = st.columns(2)
             with col_min:
@@ -435,6 +488,7 @@ def main():
                     with col2:
                         st.subheader("🧮 Elemental Totals (mg/L)")
                         element_data = []
+                        # Macronutrients
                         for element in ['N', 'K', 'P', 'Ca', 'Mg', 'S']:
                             if element in e_opt:
                                 target_min, target_max = elem_bounds[element]
@@ -444,6 +498,19 @@ def main():
                                     'Element': element,
                                     'Actual': f"{actual:.1f}",
                                     'Target': f"{target_min:.0f}-{target_max:.0f}",
+                                    'Status': status
+                                })
+                        
+                        # Micronutrients
+                        for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
+                            if element in e_opt:
+                                target_min, target_max = elem_bounds[element]
+                                actual = e_opt[element]
+                                status = "✅" if target_min <= actual <= target_max else "❌"
+                                element_data.append({
+                                    'Element': element,
+                                    'Actual': f"{actual:.3f}",
+                                    'Target': f"{target_min:.3f}-{target_max:.3f}",
                                     'Status': status
                                 })
                         
