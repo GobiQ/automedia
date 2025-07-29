@@ -373,6 +373,12 @@ def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
     """Force micronutrients to meet minimum targets if they're missing"""
     g_forced = g_best.copy()
     
+    # Store forcing info for display (print doesn't show in Streamlit)
+    if not hasattr(force_micronutrients_in_solution, 'forcing_log'):
+        force_micronutrients_in_solution.forcing_log = []
+    
+    force_micronutrients_in_solution.forcing_log.append("=== FORCING FUNCTION STARTED ===")
+    
     # Check each micronutrient
     for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
         if element in elem_bounds:
@@ -462,6 +468,7 @@ def force_micronutrients_in_solution(g_best, selected_salts, elem_bounds):
                         f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L"
                     )
     
+    force_micronutrients_in_solution.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
     return g_forced
 
 def calculate_cross_contributions(micronutrient_seeds, selected_salts):
@@ -775,7 +782,31 @@ def main():
                     
                     # ALWAYS force micronutrients to meet minimum targets, regardless of penalty
                     st.write("**🔧 Calling forcing function...**")
+                    
+                    # Show pre-forcing Cu and Mo totals
+                    pre_cu_total = 0
+                    pre_mo_total = 0
+                    for i, salt in enumerate(selected_salts):
+                        if salt in STOICH_DATABASE:
+                            if 'Cu' in STOICH_DATABASE[salt]:
+                                pre_cu_total += g_best[i] * STOICH_DATABASE[salt]['Cu']
+                            if 'Mo' in STOICH_DATABASE[salt]:
+                                pre_mo_total += g_best[i] * STOICH_DATABASE[salt]['Mo']
+                    st.write(f"**Pre-forcing totals:** Cu={pre_cu_total:.8f} mg/L, Mo={pre_mo_total:.8f} mg/L")
+                    
                     g_best = force_micronutrients_in_solution(g_best, selected_salts, elem_bounds)
+                    
+                    # Show post-forcing Cu and Mo totals
+                    post_cu_total = 0
+                    post_mo_total = 0
+                    for i, salt in enumerate(selected_salts):
+                        if salt in STOICH_DATABASE:
+                            if 'Cu' in STOICH_DATABASE[salt]:
+                                post_cu_total += g_best[i] * STOICH_DATABASE[salt]['Cu']
+                            if 'Mo' in STOICH_DATABASE[salt]:
+                                post_mo_total += g_best[i] * STOICH_DATABASE[salt]['Mo']
+                    st.write(f"**Post-forcing totals:** Cu={post_cu_total:.8f} mg/L, Mo={post_mo_total:.8f} mg/L")
+                    
                     st.write("**🔧 Forcing function completed**")
                     
                     # Recalculate penalty after forcing
