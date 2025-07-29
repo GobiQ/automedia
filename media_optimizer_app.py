@@ -128,6 +128,16 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
             elif r[ratio_name] > hi:
                 penalty += 1e6 + (r[ratio_name] - hi) ** 2
     
+    # Additional penalty for missing micronutrients (encourage their inclusion)
+    micronutrients = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
+    for micronutrient in micronutrients:
+        if micronutrient in elem_bounds and micronutrient in e:
+            target_min, target_max = elem_bounds[micronutrient]
+            actual = e[micronutrient]
+            if actual < target_min:
+                # Extra penalty for missing micronutrients
+                penalty += 1e4 + (target_min - actual) ** 2 * 10
+    
     # Minimize total salt concentration if feasible
     if penalty < 1e5:
         penalty += sum(g) * 0.01
@@ -589,6 +599,29 @@ def main():
                                     st.write(f"❌ {el}: {actual:.6f} > {hi:.6f}")
                                 else:
                                     st.write(f"✅ {el}: {actual:.6f} in range [{lo:.6f}, {hi:.6f}]")
+                        
+                        # Check if micronutrient salts are in selected_salts
+                        micronutrient_salts_in_selected = [salt for salt in selected_salts if STOICH_DATABASE[salt]['category'] == 'Micronutrient']
+                        st.write("**Micronutrient salts in selection:**")
+                        st.write(micronutrient_salts_in_selected)
+                        
+                        # Check if Cu and Mo salts are present
+                        cu_salts = [salt for salt in selected_salts if 'Cu' in STOICH_DATABASE[salt]]
+                        mo_salts = [salt for salt in selected_salts if 'Mo' in STOICH_DATABASE[salt]]
+                        st.write("**Copper salts selected:**", cu_salts)
+                        st.write("**Molybdenum salts selected:**", mo_salts)
+                        
+                        # Show what each salt contributes
+                        st.write("**Salt contributions to Cu and Mo:**")
+                        for salt, conc in zip(selected_salts, g_opt):
+                            if conc > 0.0001 and salt in STOICH_DATABASE:
+                                salt_data = STOICH_DATABASE[salt]
+                                if 'Cu' in salt_data:
+                                    cu_contribution = conc * salt_data['Cu']
+                                    st.write(f"{salt}: {cu_contribution:.6f} mg/L Cu")
+                                if 'Mo' in salt_data:
+                                    mo_contribution = conc * salt_data['Mo']
+                                    st.write(f"{salt}: {mo_contribution:.6f} mg/L Mo")
                     
                     # Visualization
                     if len([g for g in g_opt if g > 0.001]) > 0:
