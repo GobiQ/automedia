@@ -10,8 +10,6 @@ Dependencies: streamlit, numpy, scipy, pandas
 import streamlit as st
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import random
 
 # ─────────────────────────── Stoichiometry Database
@@ -480,17 +478,22 @@ def main():
                     if len([g for g in g_opt if g > 0.001]) > 0:
                         st.subheader("📈 Recipe Visualization")
                         
-                        # Recipe pie chart
+                        # Recipe bar chart using Streamlit
                         nonzero_salts = [(salt, grams) for salt, grams in zip(selected_salts, g_opt) if grams > 0.001]
                         if nonzero_salts:
                             salt_names, concentrations = zip(*nonzero_salts)
                             
-                            fig = px.pie(
-                                values=concentrations,
-                                names=salt_names,
-                                title="Salt Composition (g/L)"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
+                            # Create a simple bar chart using Streamlit
+                            chart_data = pd.DataFrame({
+                                'Salt': salt_names,
+                                'Concentration (g/L)': concentrations
+                            })
+                            
+                            st.bar_chart(chart_data.set_index('Salt'))
+                            
+                            # Also show as a table for precise values
+                            st.subheader("📊 Detailed Recipe Breakdown")
+                            st.dataframe(chart_data, hide_index=True)
                 
                 else:
                     st.error("Optimization failed. Try adjusting constraints or selecting different salts.")
