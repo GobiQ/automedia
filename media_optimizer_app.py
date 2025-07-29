@@ -179,22 +179,18 @@ def generate_salt_bounds(selected_salts):
         'H3BO3': (0, 0.02),  # For 0.5-3.0 mg/L B
         'MnSO4·H2O': (0, 0.03),  # For 2.0-10.0 mg/L Mn
         'ZnSO4·7H2O': (0, 0.01),  # For 0.5-2.0 mg/L Zn
-        'CuSO4·5H2O': (0, 0.001),  # For 0.01-0.1 mg/L Cu
-        'Na2MoO4·2H2O': (0, 0.001),  # For 0.01-0.1 mg/L Mo
+        'CuSO4·5H2O': (0, 0.0005),  # For 0.01-0.1 mg/L Cu (0.01/254.5 = 0.000039)
+        'Na2MoO4·2H2O': (0, 0.0005),  # For 0.01-0.1 mg/L Mo (0.01/395.9 = 0.000025)
         'FeSO4·7H2O': (0, 0.05),  # For 2.0-10.0 mg/L Fe
         'Na2EDTA·2H2O': (0, 0.03),  # For Fe chelation
         'MnCl2': (0, 0.04),  # For 2.0-10.0 mg/L Mn
-        'CuCl2': (0, 0.001),  # For 0.01-0.1 mg/L Cu
+        'CuCl2': (0, 0.0005),  # For 0.01-0.1 mg/L Cu (0.01/472.8 = 0.000021)
     }
     
     bounds = []
     for salt in selected_salts:
         if salt in bounds_dict:
             lo, hi = bounds_dict[salt]
-            # Force minimum concentration for micronutrient salts
-            if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
-                # Set minimum to a small but non-zero value
-                lo = 0.0001  # 0.1 mg/L minimum
             bounds.append((lo, hi))
         else:
             bounds.append((0, 1.0))
@@ -248,9 +244,6 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
             # Ensure bounds
             for j, (lo, hi) in enumerate(bounds):
                 trial[j] = max(lo, min(hi, trial[j]))
-                # Ensure micronutrient salts never go to zero
-                if lo > 0:  # This is a micronutrient salt
-                    trial[j] = max(lo, trial[j])  # Force minimum concentration
             
             # Selection
             trial_fitness = objective_func(trial, *args)
@@ -694,6 +687,23 @@ def main():
                                 if 'Mo' in salt_data:
                                     mo_contribution = conc * salt_data['Mo']
                                     st.write(f"{salt}: {mo_contribution:.6f} mg/L Mo")
+                        
+                        # Show ALL salt concentrations (including zeros)
+                        st.write("**ALL Salt Concentrations (including zeros):**")
+                        for salt, conc in zip(selected_salts, g_best):
+                            st.write(f"{salt}: {conc:.8f} g/L")
+                        
+                        # Show raw elemental totals
+                        st.write("**Raw Elemental Totals (mg/L):**")
+                        for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
+                            if element in e_opt:
+                                st.write(f"{element}: {e_opt[element]:.8f} mg/L")
+                        
+                        # Show raw ratios
+                        st.write("**Raw Ratios:**")
+                        for ratio_name in ['N:K', 'Ca:Mg', 'P:K']:
+                            if ratio_name in r_opt:
+                                st.write(f"{ratio_name}: {r_opt[ratio_name]:.8f}")
                         
                         # Test penalty function with different scenarios
                         st.write("**Penalty Function Testing:**")
