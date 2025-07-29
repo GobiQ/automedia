@@ -647,7 +647,7 @@ def main():
     st.write("**🔧 If you see this, new code is running!**")
     
     st.set_page_config(
-        page_title="Tissue Culture Media Optimizer",
+        page_title="Jonny's Tissue Culture Media Optimizer",
         page_icon="🧪",
         layout="wide"
     )
