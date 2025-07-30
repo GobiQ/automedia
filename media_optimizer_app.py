@@ -734,6 +734,10 @@ def main():
     st.write(f"**🔧 VERSION 2.2.9 - FIXED DUPLICATE PENALTY CALCULATION (Timestamp: {timestamp}, ID: {random_id})**")
     st.write("**🔧 If you see this, new code is running!**")
     
+    # Show version info
+    st.sidebar.markdown(f"**Version:** 2.2.9 (Fixed duplicate penalty calculation) - {timestamp} - {random_id}")
+    st.sidebar.markdown("**Last Update:** Removed duplicate Cu/Mo penalty calculation")
+    
     st.set_page_config(
         page_title="Tissue Culture Media Optimizer",
         page_icon="🧪",
@@ -749,10 +753,6 @@ def main():
         st.cache_data.clear()
         st.cache_resource.clear()
         st.rerun()
-    
-    # Show version info
-    st.sidebar.markdown(f"**Version:** 2.2.9 (Fixed duplicate penalty calculation) - {timestamp} - {random_id}")
-    st.sidebar.markdown("**Last Update:** Removed duplicate Cu/Mo penalty calculation")
     
     # Force version check
     if st.sidebar.button("🔄 Force Refresh", help="Force refresh to ensure latest code is running"):
