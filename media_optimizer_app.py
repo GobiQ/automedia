@@ -11,7 +11,6 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import random
-import uuid
 
 # ─────────────────────────── Stoichiometry Database
 STOICH_DATABASE = {
@@ -45,36 +44,35 @@ STOICH_DATABASE = {
     'CuCl2': {'Cu': 472.8, 'Cl': 527.2, 'category': 'Micronutrient'},  # Anhydrous
 }
 
-# Default presets - CORRECTED to match standard tissue culture media concentrations
-# Standard MS Medium provides: N~552, K~735, Ca~75, P~39, Mg~37 mg/L
+# Default presets
 DEFAULT_PRESETS = {
     "MS Medium": {
         'elements': {
-            'N': (500, 600), 'K': (700, 800), 'P': (35, 45),
-            'Ca': (70, 80), 'Mg': (35, 40), 'S': (50, 70)
+            'N': (700, 1100), 'K': (700, 1000), 'P': (35, 60),
+            'Ca': (200, 350), 'Mg': (80, 130), 'S': (60, 150)
         },
         'ratios': {
-            'N:K': (0.7, 0.8), 'Ca:Mg': (2.0, 2.5), 'P:K': (0.05, 0.06)
+            'N:K': (0.9, 1.2), 'Ca:Mg': (2.0, 4.0), 'P:K': (0.05, 0.067)
         },
         'salts': ['Ca(NO3)2·4H2O', 'KNO3', 'NH4NO3', 'NH4H2PO4', 'KH2PO4', 'K2SO4', 'MgSO4·7H2O']
     },
     "Low Salt": {
         'elements': {
-            'N': (300, 400), 'K': (400, 500), 'P': (20, 30),
-            'Ca': (50, 70), 'Mg': (20, 30), 'S': (30, 50)
+            'N': (400, 600), 'K': (400, 600), 'P': (20, 40),
+            'Ca': (100, 200), 'Mg': (40, 80), 'S': (30, 80)
         },
         'ratios': {
-            'N:K': (0.7, 0.9), 'Ca:Mg': (2.0, 3.0), 'P:K': (0.04, 0.07)
+            'N:K': (0.8, 1.3), 'Ca:Mg': (1.5, 3.5), 'P:K': (0.04, 0.08)
         },
         'salts': ['Ca(NO3)2·4H2O', 'KNO3', 'NH4H2PO4', 'MgSO4·7H2O']
     },
     "High Calcium": {
         'elements': {
-            'N': (500, 600), 'K': (600, 700), 'P': (30, 40),
-            'Ca': (100, 120), 'Mg': (30, 40), 'S': (40, 60)
+            'N': (600, 900), 'K': (500, 800), 'P': (30, 50),
+            'Ca': (300, 500), 'Mg': (60, 100), 'S': (50, 120)
         },
         'ratios': {
-            'N:K': (0.8, 0.9), 'Ca:Mg': (3.0, 4.0), 'P:K': (0.05, 0.06)
+            'N:K': (1.0, 1.4), 'Ca:Mg': (3.0, 6.0), 'P:K': (0.04, 0.07)
         },
         'salts': ['Ca(NO3)2·4H2O', 'KNO3', 'NH4H2PO4', 'K2SO4', 'MgSO4·7H2O', 'CaSO4·2H2O']
     }
@@ -148,6 +146,11 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
         if any(conc > 1e-6 for conc in micronutrient_concentrations):
             micronutrient_salts_used = True
     
+    # Element constraints with scaled violations
+    for el, (lo, hi) in elem_bounds.items():
+        if el in e:
+            penalty += sq_violation(e[el], lo, hi) * 1000  # Weighted penalty
+    
     # Ratio constraints with scaled violations
     for ratio_name, (lo, hi) in ratio_bounds.items():
         if ratio_name in r:
@@ -167,7 +170,7 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
             if actual >= min_target:
                 micronutrient_coverage[element] = True
     
-    # Element constraints with scaled violations (FIXED: Only one calculation with proper Cu/Mo weighting)
+    # Element constraints with scaled violations
     for el, (lo, hi) in elem_bounds.items():
         if el in e:
             violation = sq_violation(e[el], lo, hi)
@@ -192,20 +195,20 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
 def generate_salt_bounds(selected_salts):
     """Generate reasonable bounds for salt concentrations"""
     bounds_dict = {
-        'Ca(NO3)2·4H2O': (0, 0.5),  # Reduced from 3.0 to 0.5 g/L
-        'KNO3': (0, 2.5),  # Reduced from 3.0 to 2.5 g/L
+        'Ca(NO3)2·4H2O': (0, 3.0),
+        'KNO3': (0, 3.0),
         'NH4NO3': (0, 2.0),
-        'NH4H2PO4': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
-        'KH2PO4': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
-        'K2SO4': (0, 0.8),  # Reduced from 1.0 to 0.8 g/L
-        'MgSO4·7H2O': (0, 0.5),  # Reduced from 1.5 to 0.5 g/L
-        'CaSO4·2H2O': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
-        'CaCl2·2H2O': (0, 0.4),  # Reduced from 2.0 to 0.4 g/L
-        'MgCl2·6H2O': (0, 0.4),  # Reduced from 1.0 to 0.4 g/L
-        'K2HPO4': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
-        'NaH2PO4·H2O': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
-        '(NH4)2SO4': (0, 0.8),  # Reduced from 1.0 to 0.8 g/L
-        'NaNO3': (0, 1.5),  # Reduced from 2.0 to 1.5 g/L
+        'NH4H2PO4': (0, 0.5),
+        'KH2PO4': (0, 0.5),
+        'K2SO4': (0, 1.0),
+        'MgSO4·7H2O': (0, 1.5),
+        'CaSO4·2H2O': (0, 0.5),
+        'CaCl2·2H2O': (0, 2.0),
+        'MgCl2·6H2O': (0, 1.0),
+        'K2HPO4': (0, 0.5),
+        'NaH2PO4·H2O': (0, 0.5),
+        '(NH4)2SO4': (0, 1.0),
+        'NaNO3': (0, 2.0),
         # Micronutrient bounds (calculated for target ranges)
         'H3BO3': (0, 0.02),  # For 0.5-3.0 mg/L B
         'MnSO4·H2O': (0, 0.03),  # For 2.0-10.0 mg/L Mn
@@ -481,15 +484,15 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
     return micronutrient_seeds
 
 # Remove cache decorator completely to force fresh execution
-def force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_salts, elem_bounds, cache_buster=None):
-    """Force micronutrients to meet minimum targets if they're missing - VERSION 2.2.9 FINAL"""
+def force_micronutrients_in_solution_v2_2_8(g_best, selected_salts, elem_bounds, cache_buster=None):
+    """Force micronutrients to meet minimum targets if they're missing - VERSION 2.2.8"""
     g_forced = g_best.copy()
     
     # Store forcing info for display (print doesn't show in Streamlit)
-    if not hasattr(force_micronutrients_in_solution_v2_2_9_final_cache_buster, 'forcing_log'):
-        force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log = []
+    if not hasattr(force_micronutrients_in_solution_v2_2_8, 'forcing_log'):
+        force_micronutrients_in_solution_v2_2_8.forcing_log = []
     
-    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append("=== FORCING FUNCTION STARTED ===")
+    force_micronutrients_in_solution_v2_2_8.forcing_log.append("=== FORCING FUNCTION STARTED ===")
     
     # Check each micronutrient
     for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
@@ -504,7 +507,7 @@ def force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_
                     if element in salt_data:
                         current_total += g_forced[i] * salt_data[element]
             
-            force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+            force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                 f"Checking {element}: current={current_total:.8f} mg/L, target={min_target:.6f} mg/L"
             )
             
@@ -522,7 +525,7 @@ def force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_
                         if element in salt_data:
                             available_salts.append((i, salt, salt_data[element]))
                 
-                force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+                force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                     f"Available {element} salts: {[salt for _, salt, _ in available_salts]}"
                 )
                 
@@ -539,19 +542,19 @@ def force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_
                             all_bounds = generate_salt_bounds(selected_salts)
                             lo, hi = all_bounds[i]  # Correct index from selected_salts
                             
-                            force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+                            force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                                 f"  {salt}: {mg_per_g:.1f} mg/g, need {total_needed_g_per_l:.8f} g/L, bounds [{lo:.6f}, {hi:.6f}]"
                             )
                             
                             if total_needed_g_per_l <= hi:
                                 best_salt_index = i
                                 best_salt_name = salt
-                                force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+                                force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                                     f"  ✅ Selected {salt} for {element}"
                                 )
                                 break
                             else:
-                                force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+                                force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                                     f"  ❌ {salt} exceeds bounds (need {total_needed_g_per_l:.8f}, max {hi:.6f})"
                                 )
                 
@@ -569,15 +572,15 @@ def force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_
                     # Set the best salt to provide exactly the minimum needed
                     g_forced[best_salt_index] = total_needed_g_per_l
                     
-                    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+                    force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                         f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L"
                     )
                 else:
-                    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
+                    force_micronutrients_in_solution_v2_2_8.forcing_log.append(
                         f"❌ FAILED to force {element}: No suitable salt found within bounds!"
                     )
     
-    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
+    force_micronutrients_in_solution_v2_2_8.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
     return g_forced
 
 def calculate_cross_contributions(micronutrient_seeds, selected_salts):
@@ -731,9 +734,11 @@ def main():
     # Version check - this should appear if new code is running
     import time
     timestamp = int(time.time())
+    st.write(f"**🔧 VERSION 2.2.8 - FIXED SMART SEEDING AND DOUBLE-COUNTING (Timestamp: {timestamp})**")
+    st.write("**🔧 If you see this, new code is running!**")
     
     st.set_page_config(
-        page_title="Tissue Culture Media Optimizer",
+        page_title="Jonny's Tissue Culture Media Optimizer",
         page_icon="🧪",
         layout="wide"
     )
@@ -748,11 +753,15 @@ def main():
         st.cache_resource.clear()
         st.rerun()
     
+    # Show version info
+    st.sidebar.markdown(f"**Version:** 2.2.8 (Fixed smart seeding and double-counting) - {timestamp}")
+    st.sidebar.markdown("**Last Update:** Target minimum + 20%, enforce one salt per element")
+    
     # Force version check
     if st.sidebar.button("🔄 Force Refresh", help="Force refresh to ensure latest code is running"):
         st.rerun()
     
-    st.title("🧪 Tissue Culture Media Optimizer")
+    st.title("🧪 Jonny's Tissue Culture Media Optimizer")
     st.markdown("Optimize macro-salt recipes for tissue culture media using Monte Carlo seeding and evolutionary algorithms.")
     
     # Sidebar for main controls
@@ -837,14 +846,12 @@ def main():
             default_elements = preset_data['elements']
             default_ratios = preset_data['ratios']
         else:
-            # CORRECTED: Target ranges now match standard tissue culture media
-            # Standard MS Medium: N~552, K~735, Ca~75, P~39, Mg~37 mg/L
             default_elements = {
-                'N': (500, 600), 'K': (700, 800), 'P': (35, 45),
-                'Ca': (70, 80), 'Mg': (35, 40), 'S': (50, 70)
+                'N': (700, 1100), 'K': (700, 1000), 'P': (35, 60),
+                'Ca': (200, 350), 'Mg': (80, 130), 'S': (60, 150)
             }
             default_ratios = {
-                'N:K': (0.7, 0.8), 'Ca:Mg': (2.0, 2.5), 'P:K': (0.05, 0.06)
+                'N:K': (0.9, 1.2), 'Ca:Mg': (2.0, 4.0), 'P:K': (0.05, 0.067)
             }
         
         st.subheader("Macronutrient Concentrations (mg/L)")
@@ -917,7 +924,7 @@ def main():
                     # ALWAYS force micronutrients to meet minimum targets, regardless of penalty
                     st.write("**🔧 Calling forcing function...**")
                     st.write("**🔧 CACHE BUSTER: This should show if new code is running**")
-                    st.write("**🔧 VERSION 2.2.9: Fixed duplicate penalty calculation**")
+                    st.write("**🔧 VERSION 2.2.8: Fixed smart seeding and double-counting**")
                     
                     # Show pre-forcing Cu and Mo totals
                     pre_cu_total = 0
@@ -932,9 +939,10 @@ def main():
                     
                     # Force cache refresh by adding a unique parameter
                     import time
-                    cache_buster = f"{int(time.time())}_{timestamp}"
+                    import uuid
+                    cache_buster = f"{int(time.time())}_{uuid.uuid4().hex[:8]}_{timestamp}"
                     st.write(f"**🔧 Cache buster:** {cache_buster}")
-                    g_best = force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_salts, elem_bounds, cache_buster)
+                    g_best = force_micronutrients_in_solution_v2_2_8(g_best, selected_salts, elem_bounds, cache_buster)
                     
                     # Show post-forcing Cu and Mo totals
                     post_cu_total = 0
@@ -1277,12 +1285,12 @@ def main():
                                         st.write(f"    Total needed: {min_target:.8f} mg/L")
                         
                         # Show forcing function logs
-                        if hasattr(force_micronutrients_in_solution_v2_2_9_final_cache_buster, 'forcing_log'):
+                        if hasattr(force_micronutrients_in_solution_v2_2_8, 'forcing_log'):
                             st.write("**🔧 Forcing Function Logs:**")
-                            for log_entry in force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log:
+                            for log_entry in force_micronutrients_in_solution_v2_2_8.forcing_log:
                                 st.write(f"  {log_entry}")
                             # Clear the log for next run
-                            force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log = []
+                            force_micronutrients_in_solution_v2_2_8.forcing_log = []
                         else:
                             st.write("**🔧 Forcing Function Logs:** No forcing applied")
                         
