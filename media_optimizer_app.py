@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jonny's Tissue Culture Media Optimizer - Streamlit Web App
+Tissue Culture Media Optimizer - Streamlit Web App
 Search for optimal gram-per-litre macro-salt recipes that satisfy
 user-defined element ranges and nutrient-ratio windows.
 
@@ -11,6 +11,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import random
+import uuid
 
 # ─────────────────────────── Stoichiometry Database
 STOICH_DATABASE = {
@@ -120,6 +121,22 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
     
     penalty = 0
     
+    # ADDED: Penalty for using multiple salts for the same micronutrient
+    micronutrient_providers = {}  # element -> list of (salt_index, concentration)
+    for i, (conc, salt) in enumerate(zip(g, selected_salts)):
+        if conc > 1e-6 and salt in STOICH_DATABASE:
+            salt_data = STOICH_DATABASE[salt]
+            for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
+                if element in salt_data and element in elem_bounds:
+                    if element not in micronutrient_providers:
+                        micronutrient_providers[element] = []
+                    micronutrient_providers[element].append((i, conc))
+    
+    # Heavy penalty for using multiple salts for the same micronutrient
+    for element, providers in micronutrient_providers.items():
+        if len(providers) > 1:
+            penalty += 50000  # Very high penalty for double-counting
+    
     # Check if micronutrient salts are being used
     micronutrient_salts_used = False
     micronutrient_salt_indices = [i for i, salt in enumerate(selected_salts) 
@@ -129,11 +146,6 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
         micronutrient_concentrations = [g[i] for i in micronutrient_salt_indices]
         if any(conc > 1e-6 for conc in micronutrient_concentrations):
             micronutrient_salts_used = True
-    
-    # Element constraints with scaled violations
-    for el, (lo, hi) in elem_bounds.items():
-        if el in e:
-            penalty += sq_violation(e[el], lo, hi) * 1000  # Weighted penalty
     
     # Ratio constraints with scaled violations
     for ratio_name, (lo, hi) in ratio_bounds.items():
@@ -154,7 +166,7 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
             if actual >= min_target:
                 micronutrient_coverage[element] = True
     
-    # Element constraints with scaled violations
+    # Element constraints with scaled violations (FIXED: Only one calculation with proper Cu/Mo weighting)
     for el, (lo, hi) in elem_bounds.items():
         if el in e:
             violation = sq_violation(e[el], lo, hi)
@@ -197,12 +209,12 @@ def generate_salt_bounds(selected_salts):
         'H3BO3': (0, 0.02),  # For 0.5-3.0 mg/L B
         'MnSO4·H2O': (0, 0.03),  # For 2.0-10.0 mg/L Mn
         'ZnSO4·7H2O': (0, 0.01),  # For 0.5-2.0 mg/L Zn
-        'CuSO4·5H2O': (0, 0.001),  # INCREASED from 0.0005 to 0.001 for Cu
-        'Na2MoO4·2H2O': (0, 0.001),  # INCREASED from 0.0005 to 0.001 for Mo
+        'CuSO4·5H2O': (0.0001, 0.005),  # MINIMUM BOUND ADDED for Cu
+        'Na2MoO4·2H2O': (0.0001, 0.005),  # MINIMUM BOUND ADDED for Mo
         'FeSO4·7H2O': (0, 0.05),  # For 2.0-10.0 mg/L Fe
         'Na2EDTA·2H2O': (0, 0.03),  # For Fe chelation
         'MnCl2': (0, 0.04),  # For 2.0-10.0 mg/L Mn
-        'CuCl2': (0, 0.001),  # INCREASED from 0.0005 to 0.001 for Cu
+        'CuCl2': (0.0001, 0.005),  # MINIMUM BOUND ADDED for Cu
     }
     
     bounds = []
@@ -225,21 +237,36 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
     selected_salts = args[0]  # First argument is selected_salts
     elem_bounds = args[1]     # Second argument is elem_bounds
     
-    # FIXED: Pre-calculate optimal micronutrient concentrations FIRST
+    # FIXED: Pre-calculate optimal micronutrient concentrations with one-salt-per-element
     optimal_micronutrients = {}
+    element_to_salt_map = {}  # Track which salt is assigned to each element
+    
     for j, salt in enumerate(selected_salts):
         if STOICH_DATABASE[salt]['category'] == 'Micronutrient':
-            # Find which element this salt provides
-            for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
-                if element in elem_bounds and element in STOICH_DATABASE[salt]:
+            # Find which element this salt provides (prioritize Cu, Mo first)
+            for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
+                if (element in elem_bounds and 
+                    element in STOICH_DATABASE[salt] and
+                    element not in element_to_salt_map):  # Only if element not already assigned
+                    
                     min_val, max_val = elem_bounds[element]
-                    target = (min_val + max_val) / 2  # Target middle of range
+                    # CHANGED: Target minimum + 20% instead of 40%
+                    target = min_val + (max_val - min_val) * 0.2
                     mg_per_g = STOICH_DATABASE[salt][element]
                     optimal_g_per_l = target / mg_per_g
+                    
                     # Ensure it fits within bounds
                     lo, hi = bounds[j]
-                    optimal_micronutrients[j] = max(lo, min(hi, optimal_g_per_l))
-                    break
+                    if optimal_g_per_l <= hi and optimal_g_per_l >= lo:
+                        optimal_micronutrients[j] = optimal_g_per_l
+                        element_to_salt_map[element] = j  # Record which salt handles this element
+                        break
+    
+    # CRITICAL: Zero out salts that provide elements already handled by other salts
+    for j, salt in enumerate(selected_salts):
+        if STOICH_DATABASE[salt]['category'] == 'Micronutrient' and j not in optimal_micronutrients:
+            # This salt is not the primary provider for any element
+            optimal_micronutrients[j] = 0.0  # Force to zero
     
     # Initialize population with seed pool if available
     population = []
@@ -294,6 +321,25 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
                 if random.random() < 0.3:  # 30% chance to force optimal micronutrient
                     trial[j] = optimal_conc
             
+            # FORCE: Ensure only one salt per element is used
+            used_elements = set()
+            for j, salt in enumerate(selected_salts):
+                if salt in STOICH_DATABASE:
+                    salt_data = STOICH_DATABASE[salt]
+                    for element in ['Cu', 'Mo', 'Mn']:
+                        if element in salt_data:
+                            if element not in used_elements:
+                                # First salt for this element - ensure minimum inclusion
+                                bounds = generate_salt_bounds([salt])
+                                lo, hi = bounds[0]
+                                if trial[j] < lo:
+                                    trial[j] = lo + (hi - lo) * 0.1
+                                used_elements.add(element)
+                            else:
+                                # Second salt for this element - zero it out
+                                trial[j] = 0.0
+                            break  # Only process each salt once
+            
             # Selection
             trial_fitness = objective_func(trial, *args)
             current_fitness = objective_func(population[i], *args)
@@ -311,6 +357,21 @@ def differential_evolution_optimizer(objective_func, bounds, args, maxiter=1000,
                 # Set micronutrient salts to their optimal values
                 for j, optimal_conc in optimal_micronutrients.items():
                     individual[j] = optimal_conc
+                
+                # FIXED: Ensure only one salt per element is used
+                used_elements = set()
+                for j, salt in enumerate(selected_salts):
+                    if salt in STOICH_DATABASE:
+                        salt_data = STOICH_DATABASE[salt]
+                        for element in ['Cu', 'Mo', 'Mn']:
+                            if element in salt_data:
+                                if element not in used_elements:
+                                    used_elements.add(element)
+                                else:
+                                    # Second salt for this element - zero it out
+                                    individual[j] = 0.0
+                                break  # Only process each salt once
+                
                 population[i] = individual
     
     # Create result object similar to scipy
@@ -364,12 +425,13 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
     """Pre-calculate optimal micronutrient salt concentrations - FIXED for Cu/Mo"""
     micronutrient_seeds = {}
     
-    # Target the middle of each micronutrient range
+    # FIXED: Target the MINIMUM of each micronutrient range, not middle
     micronutrient_targets = {}
     for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
         if element in elem_bounds:
             min_val, max_val = elem_bounds[element]
-            micronutrient_targets[element] = (min_val + max_val) / 2
+            # CHANGED: Target minimum + 20% of range instead of middle
+            micronutrient_targets[element] = min_val + (max_val - min_val) * 0.2
     
     # FIXED: Prioritize Cu and Mo salts first
     priority_elements = ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']
@@ -401,24 +463,32 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
                             best_efficiency = efficiency
                             best_salt = salt
             
-            # Set the best salt for this element
+            # Set ONLY the best salt for this element
             if best_salt is not None:
                 mg_per_g = STOICH_DATABASE[best_salt][element]
                 required_g_per_l = target_concentration / mg_per_g
                 micronutrient_seeds[best_salt] = required_g_per_l
+                
+                # FIXED: Zero out other salts providing the same element
+                for salt in selected_salts:
+                    if (salt != best_salt and 
+                        salt in STOICH_DATABASE and 
+                        STOICH_DATABASE[salt]['category'] == 'Micronutrient' and
+                        element in STOICH_DATABASE[salt]):
+                        micronutrient_seeds[salt] = 0.0  # Zero out competing salts
     
     return micronutrient_seeds
 
 # Remove cache decorator completely to force fresh execution
-def force_micronutrients_in_solution_v2_2_0(g_best, selected_salts, elem_bounds, cache_buster=None):
-    """Force micronutrients to meet minimum targets if they're missing - VERSION 2.2.0"""
+def force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts, elem_bounds, cache_buster=None):
+    """Force micronutrients to meet minimum targets if they're missing - VERSION 2.2.9"""
     g_forced = g_best.copy()
     
     # Store forcing info for display (print doesn't show in Streamlit)
-    if not hasattr(force_micronutrients_in_solution_v2_2_0, 'forcing_log'):
-        force_micronutrients_in_solution_v2_2_0.forcing_log = []
+    if not hasattr(force_micronutrients_in_solution_v2_2_9_cache_buster, 'forcing_log'):
+        force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log = []
     
-    force_micronutrients_in_solution_v2_2_0.forcing_log.append("=== FORCING FUNCTION STARTED ===")
+    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append("=== FORCING FUNCTION STARTED ===")
     
     # Check each micronutrient
     for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
@@ -433,7 +503,7 @@ def force_micronutrients_in_solution_v2_2_0(g_best, selected_salts, elem_bounds,
                     if element in salt_data:
                         current_total += g_forced[i] * salt_data[element]
             
-            force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+            force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                 f"Checking {element}: current={current_total:.8f} mg/L, target={min_target:.6f} mg/L"
             )
             
@@ -451,7 +521,7 @@ def force_micronutrients_in_solution_v2_2_0(g_best, selected_salts, elem_bounds,
                         if element in salt_data:
                             available_salts.append((i, salt, salt_data[element]))
                 
-                force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+                force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                     f"Available {element} salts: {[salt for _, salt, _ in available_salts]}"
                 )
                 
@@ -468,19 +538,19 @@ def force_micronutrients_in_solution_v2_2_0(g_best, selected_salts, elem_bounds,
                             all_bounds = generate_salt_bounds(selected_salts)
                             lo, hi = all_bounds[i]  # Correct index from selected_salts
                             
-                            force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+                            force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                                 f"  {salt}: {mg_per_g:.1f} mg/g, need {total_needed_g_per_l:.8f} g/L, bounds [{lo:.6f}, {hi:.6f}]"
                             )
                             
                             if total_needed_g_per_l <= hi:
                                 best_salt_index = i
                                 best_salt_name = salt
-                                force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+                                force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                                     f"  ✅ Selected {salt} for {element}"
                                 )
                                 break
                             else:
-                                force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+                                force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                                     f"  ❌ {salt} exceeds bounds (need {total_needed_g_per_l:.8f}, max {hi:.6f})"
                                 )
                 
@@ -498,15 +568,15 @@ def force_micronutrients_in_solution_v2_2_0(g_best, selected_salts, elem_bounds,
                     # Set the best salt to provide exactly the minimum needed
                     g_forced[best_salt_index] = total_needed_g_per_l
                     
-                    force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+                    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                         f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L"
                     )
                 else:
-                    force_micronutrients_in_solution_v2_2_0.forcing_log.append(
+                    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
                         f"❌ FAILED to force {element}: No suitable salt found within bounds!"
                     )
     
-    force_micronutrients_in_solution_v2_2_0.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
+    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
     return g_forced
 
 def calculate_cross_contributions(micronutrient_seeds, selected_salts):
@@ -535,6 +605,21 @@ def generate_smart_seeds(selected_salts, elem_bounds, ratio_bounds, n_seeds=20):
     for i, salt in enumerate(selected_salts):
         if salt in micronutrient_seeds:
             base_seed[i] = micronutrient_seeds[salt]
+    
+    # FORCE: Ensure only one salt per element is used
+    used_elements = set()
+    for i, salt in enumerate(selected_salts):
+        if salt in STOICH_DATABASE:
+            salt_data = STOICH_DATABASE[salt]
+            for element in ['Cu', 'Mo', 'Mn']:
+                if element in salt_data and element not in used_elements:
+                    if base_seed[i] == 0:  # If not already set by micronutrient_seeds
+                        # Set to minimum bound to ensure inclusion
+                        bounds = generate_salt_bounds([salt])
+                        lo, hi = bounds[0]
+                        base_seed[i] = lo + (hi - lo) * 0.1  # 10% of range
+                        used_elements.add(element)  # Mark this element as used
+                        break  # Only use one salt per element
     
     # Strategy variations for macronutrients
     strategies = [
@@ -643,11 +728,14 @@ def optimize_media(selected_salts, elem_bounds, ratio_bounds, algorithm='DE', n_
 # ─────────────────────────── Streamlit App
 def main():
     # Version check - this should appear if new code is running
-    st.write("**🔧 VERSION 2.2.1 - FUNCTION RENAMED TO FORCE CACHE MISS**")
+    import time
+    timestamp = int(time.time())
+    random_id = uuid.uuid4().hex[:8]
+    st.write(f"**🔧 VERSION 2.2.9 - FIXED DUPLICATE PENALTY CALCULATION (Timestamp: {timestamp}, ID: {random_id})**")
     st.write("**🔧 If you see this, new code is running!**")
     
     st.set_page_config(
-        page_title="Jonny's Tissue Culture Media Optimizer",
+        page_title="Tissue Culture Media Optimizer",
         page_icon="🧪",
         layout="wide"
     )
@@ -663,8 +751,8 @@ def main():
         st.rerun()
     
     # Show version info
-    st.sidebar.markdown("**Version:** 2.2.1 (Renamed function to force cache miss)")
-    st.sidebar.markdown("**Last Update:** Renamed force_micronutrients_in_solution_v2_2_0")
+    st.sidebar.markdown(f"**Version:** 2.2.9 (Fixed duplicate penalty calculation) - {timestamp} - {random_id}")
+    st.sidebar.markdown("**Last Update:** Removed duplicate Cu/Mo penalty calculation")
     
     # Force version check
     if st.sidebar.button("🔄 Force Refresh", help="Force refresh to ensure latest code is running"):
@@ -731,7 +819,11 @@ def main():
             if preset_name != "Custom":
                 default_val = salt in DEFAULT_PRESETS[preset_name]['salts']
             else:
-                default_val = True  # Default all micronutrients to checked
+                # Default most micronutrients to checked, but MnSO4·H2O and CuSO4·5H2O unchecked
+                if salt in ['MnSO4·H2O', 'CuSO4·5H2O']:
+                    default_val = False
+                else:
+                    default_val = True
             
             if st.checkbox(salt, value=default_val, key=f"micronutrient_{salt}"):
                 selected_micronutrients.append(salt)
@@ -779,7 +871,7 @@ def main():
         st.subheader("Micronutrient Concentrations (mg/L)")
         micronutrient_defaults = {
             'B': (0.5, 3.0), 'Mn': (2.0, 10.0), 'Zn': (0.5, 2.0),
-            'Cu': (0.05, 0.2), 'Mo': (0.05, 0.2), 'Fe': (2.0, 10.0)  # INCREASED from 0.01-0.1 to 0.05-0.2
+            'Cu': (0.05, 0.3), 'Mo': (0.05, 0.2), 'Fe': (2.0, 10.0)  # INCREASED Cu max to 0.3
         }
         
         for element in ['B', 'Mn', 'Zn', 'Cu', 'Mo', 'Fe']:
@@ -829,6 +921,7 @@ def main():
                     # ALWAYS force micronutrients to meet minimum targets, regardless of penalty
                     st.write("**🔧 Calling forcing function...**")
                     st.write("**🔧 CACHE BUSTER: This should show if new code is running**")
+                    st.write("**🔧 VERSION 2.2.9: Fixed duplicate penalty calculation**")
                     
                     # Show pre-forcing Cu and Mo totals
                     pre_cu_total = 0
@@ -844,9 +937,9 @@ def main():
                     # Force cache refresh by adding a unique parameter
                     import time
                     import uuid
-                    cache_buster = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
+                    cache_buster = f"{int(time.time())}_{uuid.uuid4().hex[:8]}_{timestamp}"
                     st.write(f"**🔧 Cache buster:** {cache_buster}")
-                    g_best = force_micronutrients_in_solution_v2_2_0(g_best, selected_salts, elem_bounds, cache_buster)
+                    g_best = force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts, elem_bounds, cache_buster)
                     
                     # Show post-forcing Cu and Mo totals
                     post_cu_total = 0
@@ -955,9 +1048,9 @@ def main():
                     with st.expander("🔍 Debug Information"):
                         # Version and cache info
                         st.write("**🔄 Version Info:**")
-                        st.write("Version: 2.2.1 (Fixed Cu/Mo bounds and penalty weights)")
+                        st.write("Version: 2.2.5 (Fixed smart seeding to target 40% of range)")
                         st.write("Cache TTL: Removed cache decorators")
-                        st.write("Last Update: Increased Cu/Mo bounds and penalty weights")
+                        st.write("Last Update: Fixed smart seeding to target 40% of range")
                         
                         st.write("**Elements being optimized:**")
                         st.write(list(elem_bounds.keys()))
@@ -1189,12 +1282,12 @@ def main():
                                         st.write(f"    Total needed: {min_target:.8f} mg/L")
                         
                         # Show forcing function logs
-                        if hasattr(force_micronutrients_in_solution_v2_2_0, 'forcing_log'):
+                        if hasattr(force_micronutrients_in_solution_v2_2_9_cache_buster, 'forcing_log'):
                             st.write("**🔧 Forcing Function Logs:**")
-                            for log_entry in force_micronutrients_in_solution_v2_2_0.forcing_log:
+                            for log_entry in force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log:
                                 st.write(f"  {log_entry}")
                             # Clear the log for next run
-                            force_micronutrients_in_solution_v2_2_0.forcing_log = []
+                            force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log = []
                         else:
                             st.write("**🔧 Forcing Function Logs:** No forcing applied")
                         
