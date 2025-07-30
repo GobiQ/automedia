@@ -45,35 +45,36 @@ STOICH_DATABASE = {
     'CuCl2': {'Cu': 472.8, 'Cl': 527.2, 'category': 'Micronutrient'},  # Anhydrous
 }
 
-# Default presets
+# Default presets - CORRECTED to match standard tissue culture media concentrations
+# Standard MS Medium provides: N~552, K~735, Ca~75, P~39, Mg~37 mg/L
 DEFAULT_PRESETS = {
     "MS Medium": {
         'elements': {
-            'N': (700, 1100), 'K': (700, 1000), 'P': (35, 60),
-            'Ca': (200, 350), 'Mg': (80, 130), 'S': (60, 150)
+            'N': (500, 600), 'K': (700, 800), 'P': (35, 45),
+            'Ca': (70, 80), 'Mg': (35, 40), 'S': (50, 70)
         },
         'ratios': {
-            'N:K': (0.9, 1.2), 'Ca:Mg': (2.0, 4.0), 'P:K': (0.05, 0.067)
+            'N:K': (0.7, 0.8), 'Ca:Mg': (2.0, 2.5), 'P:K': (0.05, 0.06)
         },
         'salts': ['Ca(NO3)2·4H2O', 'KNO3', 'NH4NO3', 'NH4H2PO4', 'KH2PO4', 'K2SO4', 'MgSO4·7H2O']
     },
     "Low Salt": {
         'elements': {
-            'N': (400, 600), 'K': (400, 600), 'P': (20, 40),
-            'Ca': (100, 200), 'Mg': (40, 80), 'S': (30, 80)
+            'N': (300, 400), 'K': (400, 500), 'P': (20, 30),
+            'Ca': (50, 70), 'Mg': (20, 30), 'S': (30, 50)
         },
         'ratios': {
-            'N:K': (0.8, 1.3), 'Ca:Mg': (1.5, 3.5), 'P:K': (0.04, 0.08)
+            'N:K': (0.7, 0.9), 'Ca:Mg': (2.0, 3.0), 'P:K': (0.04, 0.07)
         },
         'salts': ['Ca(NO3)2·4H2O', 'KNO3', 'NH4H2PO4', 'MgSO4·7H2O']
     },
     "High Calcium": {
         'elements': {
-            'N': (600, 900), 'K': (500, 800), 'P': (30, 50),
-            'Ca': (300, 500), 'Mg': (60, 100), 'S': (50, 120)
+            'N': (500, 600), 'K': (600, 700), 'P': (30, 40),
+            'Ca': (100, 120), 'Mg': (30, 40), 'S': (40, 60)
         },
         'ratios': {
-            'N:K': (1.0, 1.4), 'Ca:Mg': (3.0, 6.0), 'P:K': (0.04, 0.07)
+            'N:K': (0.8, 0.9), 'Ca:Mg': (3.0, 4.0), 'P:K': (0.05, 0.06)
         },
         'salts': ['Ca(NO3)2·4H2O', 'KNO3', 'NH4H2PO4', 'K2SO4', 'MgSO4·7H2O', 'CaSO4·2H2O']
     }
@@ -191,20 +192,20 @@ def penalty_function(g, selected_salts, elem_bounds, ratio_bounds):
 def generate_salt_bounds(selected_salts):
     """Generate reasonable bounds for salt concentrations"""
     bounds_dict = {
-        'Ca(NO3)2·4H2O': (0, 3.0),
-        'KNO3': (0, 3.0),
+        'Ca(NO3)2·4H2O': (0, 0.5),  # Reduced from 3.0 to 0.5 g/L
+        'KNO3': (0, 2.5),  # Reduced from 3.0 to 2.5 g/L
         'NH4NO3': (0, 2.0),
-        'NH4H2PO4': (0, 0.5),
-        'KH2PO4': (0, 0.5),
-        'K2SO4': (0, 1.0),
-        'MgSO4·7H2O': (0, 1.5),
-        'CaSO4·2H2O': (0, 0.5),
-        'CaCl2·2H2O': (0, 2.0),
-        'MgCl2·6H2O': (0, 1.0),
-        'K2HPO4': (0, 0.5),
-        'NaH2PO4·H2O': (0, 0.5),
-        '(NH4)2SO4': (0, 1.0),
-        'NaNO3': (0, 2.0),
+        'NH4H2PO4': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
+        'KH2PO4': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
+        'K2SO4': (0, 0.8),  # Reduced from 1.0 to 0.8 g/L
+        'MgSO4·7H2O': (0, 0.5),  # Reduced from 1.5 to 0.5 g/L
+        'CaSO4·2H2O': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
+        'CaCl2·2H2O': (0, 0.4),  # Reduced from 2.0 to 0.4 g/L
+        'MgCl2·6H2O': (0, 0.4),  # Reduced from 1.0 to 0.4 g/L
+        'K2HPO4': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
+        'NaH2PO4·H2O': (0, 0.3),  # Reduced from 0.5 to 0.3 g/L
+        '(NH4)2SO4': (0, 0.8),  # Reduced from 1.0 to 0.8 g/L
+        'NaNO3': (0, 1.5),  # Reduced from 2.0 to 1.5 g/L
         # Micronutrient bounds (calculated for target ranges)
         'H3BO3': (0, 0.02),  # For 0.5-3.0 mg/L B
         'MnSO4·H2O': (0, 0.03),  # For 2.0-10.0 mg/L Mn
@@ -836,12 +837,14 @@ def main():
             default_elements = preset_data['elements']
             default_ratios = preset_data['ratios']
         else:
+            # CORRECTED: Target ranges now match standard tissue culture media
+            # Standard MS Medium: N~552, K~735, Ca~75, P~39, Mg~37 mg/L
             default_elements = {
-                'N': (700, 1100), 'K': (700, 1000), 'P': (35, 60),
-                'Ca': (200, 350), 'Mg': (80, 130), 'S': (60, 150)
+                'N': (500, 600), 'K': (700, 800), 'P': (35, 45),
+                'Ca': (70, 80), 'Mg': (35, 40), 'S': (50, 70)
             }
             default_ratios = {
-                'N:K': (0.9, 1.2), 'Ca:Mg': (2.0, 4.0), 'P:K': (0.05, 0.067)
+                'N:K': (0.7, 0.8), 'Ca:Mg': (2.0, 2.5), 'P:K': (0.05, 0.06)
             }
         
         st.subheader("Macronutrient Concentrations (mg/L)")
