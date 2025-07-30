@@ -480,15 +480,15 @@ def calculate_micronutrient_seeds(selected_salts, elem_bounds):
     return micronutrient_seeds
 
 # Remove cache decorator completely to force fresh execution
-def force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts, elem_bounds, cache_buster=None):
-    """Force micronutrients to meet minimum targets if they're missing - VERSION 2.2.9"""
+def force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_salts, elem_bounds, cache_buster=None):
+    """Force micronutrients to meet minimum targets if they're missing - VERSION 2.2.9 FINAL"""
     g_forced = g_best.copy()
     
     # Store forcing info for display (print doesn't show in Streamlit)
-    if not hasattr(force_micronutrients_in_solution_v2_2_9_cache_buster, 'forcing_log'):
-        force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log = []
+    if not hasattr(force_micronutrients_in_solution_v2_2_9_final_cache_buster, 'forcing_log'):
+        force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log = []
     
-    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append("=== FORCING FUNCTION STARTED ===")
+    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append("=== FORCING FUNCTION STARTED ===")
     
     # Check each micronutrient
     for element in ['Cu', 'Mo', 'B', 'Mn', 'Zn', 'Fe']:
@@ -503,7 +503,7 @@ def force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts,
                     if element in salt_data:
                         current_total += g_forced[i] * salt_data[element]
             
-            force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+            force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                 f"Checking {element}: current={current_total:.8f} mg/L, target={min_target:.6f} mg/L"
             )
             
@@ -521,7 +521,7 @@ def force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts,
                         if element in salt_data:
                             available_salts.append((i, salt, salt_data[element]))
                 
-                force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+                force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                     f"Available {element} salts: {[salt for _, salt, _ in available_salts]}"
                 )
                 
@@ -538,19 +538,19 @@ def force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts,
                             all_bounds = generate_salt_bounds(selected_salts)
                             lo, hi = all_bounds[i]  # Correct index from selected_salts
                             
-                            force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+                            force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                                 f"  {salt}: {mg_per_g:.1f} mg/g, need {total_needed_g_per_l:.8f} g/L, bounds [{lo:.6f}, {hi:.6f}]"
                             )
                             
                             if total_needed_g_per_l <= hi:
                                 best_salt_index = i
                                 best_salt_name = salt
-                                force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+                                force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                                     f"  ✅ Selected {salt} for {element}"
                                 )
                                 break
                             else:
-                                force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+                                force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                                     f"  ❌ {salt} exceeds bounds (need {total_needed_g_per_l:.8f}, max {hi:.6f})"
                                 )
                 
@@ -568,15 +568,15 @@ def force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts,
                     # Set the best salt to provide exactly the minimum needed
                     g_forced[best_salt_index] = total_needed_g_per_l
                     
-                    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+                    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                         f"FORCED {element}: Set {best_salt_name} to {total_needed_g_per_l:.8f} g/L to meet minimum {min_target:.6f} mg/L"
                     )
                 else:
-                    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append(
+                    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append(
                         f"❌ FAILED to force {element}: No suitable salt found within bounds!"
                     )
     
-    force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
+    force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log.append("=== FORCING FUNCTION COMPLETED ===")
     return g_forced
 
 def calculate_cross_contributions(micronutrient_seeds, selected_salts):
@@ -730,12 +730,12 @@ def main():
     # Version check - this should appear if new code is running
     import time
     timestamp = int(time.time())
-    random_id = uuid.uuid4().hex[:8]
-    st.write(f"**🔧 VERSION 2.2.9 - FIXED DUPLICATE PENALTY CALCULATION (Timestamp: {timestamp}, ID: {random_id})**")
+    st.write(f"**🔧 VERSION 2.2.9 - FIXED DUPLICATE PENALTY CALCULATION (Timestamp: {timestamp})**")
     st.write("**🔧 If you see this, new code is running!**")
+    st.write("**🔧 CACHE BUSTER: Function renamed to force_micronutrients_in_solution_v2_2_9_final_cache_buster**")
     
     # Show version info
-    st.sidebar.markdown(f"**Version:** 2.2.9 (Fixed duplicate penalty calculation) - {timestamp} - {random_id}")
+    st.sidebar.markdown(f"**Version:** 2.2.9 (Fixed duplicate penalty calculation) - {timestamp}")
     st.sidebar.markdown("**Last Update:** Removed duplicate Cu/Mo penalty calculation")
     
     st.set_page_config(
@@ -936,10 +936,9 @@ def main():
                     
                     # Force cache refresh by adding a unique parameter
                     import time
-                    import uuid
-                    cache_buster = f"{int(time.time())}_{uuid.uuid4().hex[:8]}_{timestamp}"
+                    cache_buster = f"{int(time.time())}_{timestamp}"
                     st.write(f"**🔧 Cache buster:** {cache_buster}")
-                    g_best = force_micronutrients_in_solution_v2_2_9_cache_buster(g_best, selected_salts, elem_bounds, cache_buster)
+                    g_best = force_micronutrients_in_solution_v2_2_9_final_cache_buster(g_best, selected_salts, elem_bounds, cache_buster)
                     
                     # Show post-forcing Cu and Mo totals
                     post_cu_total = 0
@@ -1282,12 +1281,12 @@ def main():
                                         st.write(f"    Total needed: {min_target:.8f} mg/L")
                         
                         # Show forcing function logs
-                        if hasattr(force_micronutrients_in_solution_v2_2_9_cache_buster, 'forcing_log'):
+                        if hasattr(force_micronutrients_in_solution_v2_2_9_final_cache_buster, 'forcing_log'):
                             st.write("**🔧 Forcing Function Logs:**")
-                            for log_entry in force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log:
+                            for log_entry in force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log:
                                 st.write(f"  {log_entry}")
                             # Clear the log for next run
-                            force_micronutrients_in_solution_v2_2_9_cache_buster.forcing_log = []
+                            force_micronutrients_in_solution_v2_2_9_final_cache_buster.forcing_log = []
                         else:
                             st.write("**🔧 Forcing Function Logs:** No forcing applied")
                         
