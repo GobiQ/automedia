@@ -730,13 +730,6 @@ def main():
     # Version check - this should appear if new code is running
     import time
     timestamp = int(time.time())
-    st.write(f"**🔧 VERSION 2.2.9 - FIXED DUPLICATE PENALTY CALCULATION (Timestamp: {timestamp})**")
-    st.write("**🔧 If you see this, new code is running!**")
-    st.write("**🔧 CACHE BUSTER: Function renamed to force_micronutrients_in_solution_v2_2_9_final_cache_buster**")
-    
-    # Show version info
-    st.sidebar.markdown(f"**Version:** 2.2.9 (Fixed duplicate penalty calculation) - {timestamp}")
-    st.sidebar.markdown("**Last Update:** Removed duplicate Cu/Mo penalty calculation")
     
     st.set_page_config(
         page_title="Tissue Culture Media Optimizer",
